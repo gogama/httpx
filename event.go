@@ -80,9 +80,12 @@ const (
 	// (and last AfterAttempt event) EXCEPT that the end time is set to
 	// the time the execution ended.
 	AfterExecutionEnd
-	numEvents_
+	// eventSentinel provides the total number of events typed as an
+	// Event.
+	eventSentinel
 
-	numEvents = int(numEvents_)
+	// numEvents provides the total number of events types as an int.
+	numEvents = int(eventSentinel)
 )
 
 var eventNames = []string{

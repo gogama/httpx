@@ -44,7 +44,8 @@ func TestNewPlanWithContext(t *testing.T) {
 				assert.Same(t, context.Background(), p.Context())
 			}
 		})
-		ctx := context.WithValue(context.Background(), "foo", "bar")
+		type foo struct{}
+		ctx := context.WithValue(context.Background(), foo{}, "bar")
 		require.NotSame(t, ctx, context.Background())
 		t.Run(testCase.name+" with special context", func(t *testing.T) {
 			p, err := NewPlanWithContext(ctx, testCase.method, testCase.url, resolveBody(t, testCase.body))
@@ -404,6 +405,7 @@ func TestPlan_ToRequest(t *testing.T) {
 		require.NotNil(t, rc)
 		assert.NoError(t, err)
 		b, err = ioutil.ReadAll(rc)
+		assert.NoError(t, err)
 		assert.Equal(t, string(b), "foo")
 	})
 }
@@ -420,7 +422,8 @@ func TestPlan_WithContext(t *testing.T) {
 	t.Run("valid context", func(t *testing.T) {
 		assert.Same(t, context.Background(), p.ctx)
 		// Create first new Plan, q, from parent p
-		qctx := context.WithValue(context.Background(), "first-parent", p)
+		type firstParent struct{}
+		qctx := context.WithValue(context.Background(), firstParent{}, p)
 		require.NotSame(t, qctx, context.Background())
 		q := p.WithContext(qctx)
 		assert.NotNil(t, q)
@@ -432,7 +435,8 @@ func TestPlan_WithContext(t *testing.T) {
 		assert.Equal(t, p, q)
 		assert.Equal(t, &p.Body, &q.Body)
 		// Create second new plan, r, from parent q
-		rctx := context.WithValue(context.Background(), "second-parent", q)
+		type secondParent struct{}
+		rctx := context.WithValue(context.Background(), secondParent{}, q)
 		require.NotSame(t, rctx, context.Background())
 		require.NotSame(t, rctx, qctx)
 		r := p.WithContext(rctx)

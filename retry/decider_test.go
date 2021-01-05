@@ -103,12 +103,12 @@ func TestTransientErr(t *testing.T) {
 }
 
 func TestDeciderAnd(t *testing.T) {
-	true_ := DeciderFunc(func(_ *request.Execution) bool { return true })
-	false_ := DeciderFunc(func(_ *request.Execution) bool { return false })
-	tt := true_.And(true_)
-	tf := true_.And(false_)
-	ft := false_.And(true_)
-	ff := false_.And(false_)
+	tr := DeciderFunc(func(_ *request.Execution) bool { return true })
+	fa := DeciderFunc(func(_ *request.Execution) bool { return false })
+	tt := tr.And(tr)
+	tf := tr.And(fa)
+	ft := fa.And(tr)
+	ff := fa.And(fa)
 	assert.True(t, tt(&request.Execution{}))
 	assert.False(t, tf(&request.Execution{}))
 	assert.False(t, ft(&request.Execution{}))
@@ -116,12 +116,12 @@ func TestDeciderAnd(t *testing.T) {
 }
 
 func TestDeciderOr(t *testing.T) {
-	true_ := DeciderFunc(func(_ *request.Execution) bool { return true })
-	false_ := DeciderFunc(func(_ *request.Execution) bool { return false })
-	tt := true_.Or(true_)
-	tf := true_.Or(false_)
-	ft := false_.Or(true_)
-	ff := false_.Or(false_)
+	tr := DeciderFunc(func(_ *request.Execution) bool { return true })
+	fa := DeciderFunc(func(_ *request.Execution) bool { return false })
+	tt := tr.Or(tr)
+	tf := tr.Or(fa)
+	ft := fa.Or(tr)
+	ff := fa.Or(fa)
 	assert.True(t, tt(&request.Execution{}))
 	assert.True(t, tf(&request.Execution{}))
 	assert.True(t, ft(&request.Execution{}))

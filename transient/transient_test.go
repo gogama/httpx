@@ -41,7 +41,7 @@ func (err timeout) Error() string {
 	return "timeout"
 }
 
-func (_ timeout) Timeout() bool {
+func (timeout) Timeout() bool {
 	return true
 }
 
