@@ -6,8 +6,9 @@
 // transient or non-transient. This is handy for writing retry policies,
 // and for other purposes such as bucketing error metrics.
 //
-// Package transient is extremely lightweight, as it depends only on
-// the standard library packages "errors" and "syscall", so it doesn't
-// bring any significant dependencies when imported as a standalone
-// package.
+// Package transient is very lightweight, as it depends only on the
+// standard library packages "errors" and "syscall". It can be used
+// standalone from the rest of the httpx package for applications that
+// need transience classification and don't want to bring in a cascade
+// of dependencies.
 package transient

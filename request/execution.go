@@ -16,52 +16,62 @@ import (
 // When an HTTP request plan execution is requested, an Execution is
 // created for it. The Execution is updated as the plan execution
 // progresses (for example when the HTTP response becomes available,
-// or when a retry is needed) and ultimately returned as return value of
-// the plan execution.
+// or when a retry is needed) and is ultimately returned as return value
+// of the plan execution.
 //
 // Timeout and retry policies and event handlers may set values on an
 // Execution using its SetValue method and read them back using the Value
-// method. However, they should treat the execution's field values as
-// immutable and leave them unmodified, as the execution state is vital to
-// the correct functioning of the plan execution logic. Limited exceptions
-// to this rule include making reasonable changes to the http.Request before
-// it is sent (for example, to support an OAuth or AWS signing use case),
-// or to unzip or a request body after it is successfully read.
+// method. However, they should treat the structure's exported field
+// values as immutable and leave them unmodified, as the execution state
+// is vital to the correct functioning of the plan execution logic.
+// Limited exceptions to this rule include making reasonable changes to
+// the http.Request before it is sent (for example, to support an OAuth
+// or AWS signing use case), or to unzip or a request body after it is
+// successfully read.
 type Execution struct {
 	// Plan specifies the HTTP request plan being executed. It is never
 	// nil.
 	Plan *Plan
+
 	// Start is the start time of the HTTP request plan execution. It
 	// is assigned a non-zero value when the plan execution starts, and
 	// this value remains constant thereafter.
 	Start time.Time
+
 	// End is the end time of the HTTP request plan execution. It
 	// contains the zero value until the plan execution is ends, when
-	// it is set to the current.
+	// it is set to the current time.
 	End time.Time
+
 	// Attempt is the zero-based number of the current HTTP request
 	// attempt during the plan execution. It is set to zero on the
 	// initial attempt, one on the first retry, and so on.
 	//
 	// When the execution is ended, Attempt contains the zero-based
 	// number of the last attempt made during the execution. So for
-	// example an execution that ends after two retries will have an
-	// attempt number of 2.
+	// example an execution that ends after an initial attempt plus two
+	// retries will have an attempt number of 2.
 	Attempt int
+
 	// AttemptTimeouts is the count of the number of times an HTTP
 	// request attempt timed out during the execution.
 	//
 	// Plan timeouts (when the plan's own context deadline is exceeded)
-	// do not contribute to the attempt timeout counter.
+	// do not contribute to the attempt timeout counter, but if an
+	// attempt timeout and a plan timeout coincide, the attempt timeout
+	// counter will be incremented by one due to the attempt timeout.
 	AttemptTimeouts int
+
 	// Request specifies the HTTP request to be made in the current
 	// attempt, or already made in the last attempt.
 	Request *http.Request
+
 	// Response specifies the HTTP response received in the most recent
 	// request attempt. It will be nil if the most recent attempt ended
 	// in an error, or if a current attempt is underway, or before the
 	// execution starts.
 	Response *http.Response
+
 	// Err indicates the error received while making the most recent
 	// request attempt. It will be nil if the most recent attempt ended
 	// without an error, or if a current attempt is underway, or before
@@ -74,6 +84,7 @@ type Execution struct {
 	// Err will not change and has the same value as the error value
 	// returned by the robust client's executing method.
 	Err error
+
 	// Body is the complete response body read from the response after
 	// the most recent request attempt. It will be nil if the most
 	// recent attempt ended in an error, or if a current attempt is
@@ -84,6 +95,7 @@ type Execution struct {
 	// of a completed execution should be treated as invalid unless Err
 	// is nil.
 	Body []byte
+
 	// Data contains arbitrary user data. The httpx library will not
 	// touch this field, and it will typically be nil unless used by
 	// event handler writers.

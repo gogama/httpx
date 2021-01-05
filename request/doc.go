@@ -3,9 +3,9 @@
 // license that can be found in the LICENSE file.
 
 /*
-Package request contains the two core types that describe an HTTP
-request plan and its execution. These types are fundamental to making
-reliable HTTP requests.
+Package request contains the core types Plan (describes an HTTP request
+plan) and Execution (describes a Plan execution). These two types are
+fundamental to making reliable HTTP requests.
 
 The first core type is Plan, which represents a HTTP request plan.
 
@@ -27,7 +27,7 @@ Create a plan to make a reliable HTTP request:
 A plan may be assigned a context to allow timeouts to be set on the
 entire plan execution, and to allow the plan execution to be cancelled:
 
-	p, err := request.NewPlanWithContext(ctx, "POST", "https://example.com/submit", body)
+	p, err := request.NewPlanWithContext(ctx, "POST", "https://example.com/upload", body)
 	...
 
 If a deadline is set on the plan context, it is separate from the

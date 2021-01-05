@@ -17,14 +17,13 @@ import (
 // Implementations of Waiter must be safe for concurrent use by multiple
 // goroutines.
 //
-// This package provides two Waiter implementations, using the constructors
-// NewExpWaiter() and NewHintWaiter(). In addition it provides a concrete
-// instance suitable for many typical use cases, DefaultWaiter.
+// The robust HTTP client, httpx.Client, will not call the Waiter on a
+// retry policy if the policy Decider returned false.
+//
+// This package provides one Waiter implementations, using the constructor
+// function NewExpWaiter. In addition it provides a concrete instance
+// suitable for many typical use cases, DefaultWaiter.
 type Waiter interface {
-	// Wait returns the time to wait before retrying a failed attempt.
-	//
-	// The reliable HTTP client, httpx.Client, will not invoke Wait if
-	// it has decided not to retry the attempt.
 	Wait(e *request.Execution) time.Duration
 }
 
@@ -33,8 +32,8 @@ type Waiter interface {
 // maximum wait of 1 second.
 var DefaultWaiter = NewExpWaiter(50*time.Millisecond, 1*time.Second, time.Now())
 
-// NewExpWaiter constructs a MaxWaiter implementing an exponential
-// backoff formula with optional jitter.
+// NewExpWaiter constructs a Waiter implementing an exponential backoff
+// formula with optional jitter.
 //
 // The formula implemented is the "Full Jitter" approach described in:
 // https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter.

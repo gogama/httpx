@@ -30,7 +30,7 @@ type HTTPDoer interface {
 
 var emptyHandlers = HandlerGroup{}
 
-// A Client is a robust HTTP client with retry support. Its zero value\
+// A Client is a robust HTTP client with retry support. Its zero value
 // is a valid configuration.
 //
 // The zero value client uses http.DefaultClient (from net/http) as the
@@ -38,34 +38,34 @@ var emptyHandlers = HandlerGroup{}
 // as the retry policy, and an empty handler group (no event handlers/plug-ins).
 //
 // Client's HTTPDoer typically has an internal state (cached TCP
-// connections) so robust client instances should be reused instead of
-// created as needed. Robust clients are safe for concurrent use by
-// multiple goroutines.
+// connections) so Client instances should be reused instead of created
+// as needed. Client is safe for concurrent use by multiple goroutines.
 //
-// A robust client is higher-level than an HTTPDoer. The HTTPDoer
-// is responsible for all details of sending the HTTP request and
-// receiving the response. For example, the HTTPDoer is responsible for
-// redirects, so consult the HTTPDoer's documentation to understand how
-// redirects are handled. Typically the Go standard HTTP client
-// http.Client) will be used as the HTTPDoer, but this is not required.
+// A Client is higher-level than an HTTPDoer. The HTTPDoer is responsible
+// for all details of sending the HTTP request and receiving the response,
+// while Client builds on top of the HTTPDoer's feature set. For example,
+// the HTTPDoer is responsible for redirects, so consult the HTTPDoer's
+// documentation to understand how redirects are handled. Typically the
+// Go standard HTTP client http.Client) will be used as the HTTPDoer,
+// but this is not required.
 //
-// On top of the HTTP request features provided by the HTTPDoer, the
-// Client adds the following features:
+// On top of the HTTP request features provided by the HTTPDoer, Client
+// adds the following features:
 //
-// • the robust client reads and buffers the entire HTTP response body
-// into a []byte (returned as the Execution.Body field);
+// • Client reads and buffers the entire HTTP response body into a
+// []byte (returned as the Execution.Body field);
 //
-// • the robust client retries failed request attempts using a
-// customizable retry policy;
+// • Client retries failed request attempts using a customizable retry
+// policy;
 //
-// • the robust client sets individual request attempt timeouts
-// using a customizable timeout policy;
+// • Client sets individual request attempt timeouts using a
+// customizable timeout policy;
 //
-// • the robust client invokes user-provided handler functions
-// at designated plug-in points within the attempt/retry loop, allowing
-// new features to be mixed in from outside libraries; and
+// • Client invokes user-provided handler functions at designated plug-in
+// points within the attempt/retry loop, allowing new features to be
+// mixed in from outside libraries; and
 //
-// • the robust client implements the httpx.Executor interface.
+// • Client implements the httpx.Executor interface.
 //
 // Client's HTTP methods should feel familiar to anyone who has used the
 // Go standard HTTP client (http.Client). The methods use the same names,
@@ -88,16 +88,16 @@ type Client struct {
 	// If HTTPDoer is nil, http.DefaultClient from the standard net/http
 	// package is used.
 	HTTPDoer HTTPDoer
-	// TimeoutPolicy specifies how to set timeouts on individual request
-	// attempts.
-	//
-	// If TimeoutPolicy is nil, timeout.DefaultPolicy is used.
-	TimeoutPolicy timeout.Policy
 	// RetryPolicy decides when to retry failed attempts and how long
 	// to sleep after a failed attempt before retrying.
 	//
 	// If RetryPolicy is nil, retry.DefaultPolicy is used.
 	RetryPolicy retry.Policy
+	// TimeoutPolicy specifies how to set timeouts on individual request
+	// attempts.
+	//
+	// If TimeoutPolicy is nil, timeout.DefaultPolicy is used.
+	TimeoutPolicy timeout.Policy
 	// Handlers allows custom handler chains to be invoked when
 	// designated events occur during execution of a request plan.
 	//
@@ -106,20 +106,20 @@ type Client struct {
 }
 
 // Do executes an HTTP request plan and returns the results, following
-// timeout and retry policy set on the robust client, and low-level
-// policy set on the underlying HTTPDoer.
+// timeout and retry policy set on Client, and low-level policy set on
+// the underlying HTTPDoer.
 //
-// The result returned is the result after the final attempt, as
-// determined by the retry policy.
+// The result returned is the result after the final HTTP request
+// attempt made during the plan execution, as determined by the retry
+// policy.
 //
 // An error is returned if, after doing any retries mandated by the
 // retry policy, the final attempt resulted in an error. An attempt may
 // end in error due to failure to speak HTTP (for example a network
 // connectivity problem), or because of policy in the robust client
 // (such as timeout), or because of policy on the underlying HTTPDoer
-// (for example relating to redirects or automatic unzipping of the
-// body). A non-2XX status code in the final attempt does not result in
-// an error.
+// (for example relating to redirects body). A non-2XX status code in
+// the final attempt does not result in an error.
 //
 // The returned Execution is never nil, but may contain a nil Response
 // and will contain a nil Body if an error occurred (if the initial
@@ -135,8 +135,8 @@ type Client struct {
 //
 // Any returned error will be of type *url.Error. The url.Error's
 // Timeout method, and the Execution's Timeout method, will return
-// true if the final request attempt timed out or was cancelled, or if
-// the entire plan timed out or was cancelled.
+// true if the final request attempt timed out, or if the entire plan
+// timed out.
 //
 // For simple use cases, the Get, Head, Post, and PostForm methods may
 // prove easier to use than Do.
@@ -288,58 +288,6 @@ func (c *Client) doer() HTTPDoer {
 
 	return c.HTTPDoer
 }
-
-// Structure
-//
-// If I just make Client support resetting of the underlying
-// DNS cache (close idle conns will do most of the rest) then the
-// reset strategy can probably be accomplished with a handler which
-// itself is maintaining state. When the handler sees it was slow, it
-// increments a counter for that IP address. When the IP address count
-// goes above X, we:
-//    1. Find all the connections to IP address and force close them.
-//    2. Flush that IP address out of the DNS cache.
-//
-// We want to support something like: PurgeConnections(to: address)
-//
-// In the default Go implementation, net.Dialer uses a net.Resolver,
-// or net.DefaultResolver if there's no specifically attached resolver.
-//
-// net/lookup.go is the Resolver implementation.
-//
-// Resolver.LookupHost is host -> IP
-// Resolver.LookupAddr is IP -> host
-//
-// My sense, which I should test empirically first and then validate
-// by reading the code is that DNS is not cached explicitly but is
-// cached implicitly by caching connections in the RoundTripper
-// (transport). That cache is a `map[connectMethodKey][]*persistConn`
-// where `connectMethodKey` is:
-//
-// type connectMethodKey struct {
-//     proxy, scheme, addr string
-//     onlyH1              bool
-// }
-//
-// So by this theory it is the Transport replacement triggered by
-// creating a new http.Client that triggers the reset, although that
-// means our constructor would need to explicitly create a RoundTripper.
-//
-// If this theory is right, CloseIdleConns() will do most of the work.
-//
-//
-
-// Whether http.Transport.readLoop() puts a conn back depends on
-// the alive flag. If false, the conn gets closed.
-//
-// If Request.Close or Response.Close is true after the headers are
-// read, alive is set false so the conn will be closed.
-//
-// If the request is cancelled, or its context Done() returns true
-// (timeout, e.g.) before EOF is read, alive is set false so the conn
-// will be closed. [If true, does this mean that our Waypoint logic only
-// affects succeeded requests that take longer than the threshold but
-// less than the timeout?]
 
 func urlErrorWrap(p *request.Plan, err error) error {
 	if _, ok := err.(*url.Error); ok {

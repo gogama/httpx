@@ -31,9 +31,9 @@ const (
 // client.
 //
 // The logical request described by a Plan will typically result in a
-// lower-level http.Request (net/http) being executed, but may result in
-// multiple Requests, for example if the client implementation adds
-// reliability by retrying failed requests.
+// lower-level http.Request (net/http) attempts being made, but may
+// result in multiple request attempts, for example if the a failed
+// attempt needs to be retried.
 //
 // The field structure of plan mirrors the structure of the lower-level
 // http.Request with the following differences. Server-only fields are
@@ -71,16 +71,18 @@ type Plan struct {
 
 	// TransferEncoding lists the transfer encodings from outermost to
 	// innermost. An empty list denotes the "identity" encoding.
-	// TransferEncoding can usually be ignored; the lower-level HTTP
-	// client (net/http) automatically adds and removes chunked encoding
-	// as necessary when sending requests.
+	// TransferEncoding can usually be ignored if using the Go standard
+	// http.Client (net/http) for as the lower-level HTTPDoer; http.Client
+	// automatically adds and removes chunked encoding as necessary when
+	// sending requests.
 	TransferEncoding []string
 
 	// Close stipulates whether to close the connection after sending
 	// each lower-level (net/http) Request and reading the response.
 	// Setting this field prevents re-use of TCP connections between
-	// requests to the same host (including two requests coming from the
-	// same plan) as if Transport.DisableKeepAlives were set.
+	// request attempts to the same host (including two request attempts
+	// coming from the same plan) as if Transport.DisableKeepAlives were
+	// set.
 	Close bool
 
 	// Host optionally overrides the Host header to send. If empty, the
@@ -88,9 +90,8 @@ type Plan struct {
 	// domain name.
 	Host string
 
-	// ctx allows the entire Plan exec to be cancelled. It
-	// should only be modified by copying the whole Plan using
-	// WithContext.
+	// ctx allows the entire Plan exec to be cancelled. It should only
+	// be modified by copying the whole Plan using WithContext.
 	ctx context.Context
 }
 
@@ -156,14 +157,13 @@ func (p *Plan) Context() context.Context {
 // WithContext returns a shallow copy of p with its context changed to
 // ctx, which must be non-nil.
 //
-// For outgoing client request, the context controls the entire
-// lifetime of a request and its response: obtaining a connection,
-// sending the request, and reading the response headers and body.
+// The context controls the entire lifetime of a logical request plan
+// and its execution, including: making individual request attempts
+// (obtaining a connection, sending the request, reading the response
+// headers and body), running event handlers, and waiting for a retry
+// wait period to expire.
 //
-// To create a new request with a context, use NewRequestWithContext.
-// To change the context of a request, such as an incoming request you
-// want to modify before sending back out, use Request.Clone. Between
-// those two uses, it's rare to need WithContext.
+// To create a new request plan with a context, use NewPlanWithContext.
 func (p *Plan) WithContext(ctx context.Context) *Plan {
 	if ctx == nil {
 		panic(nilCtxMsg)
@@ -177,7 +177,8 @@ func (p *Plan) WithContext(ctx context.Context) *Plan {
 // AddCookie adds a cookie to the request. Per RFC 6265 section 5.4,
 // AddCookie does not attach more than one Cookie header field. That
 // means all cookies, if any, are written into the same line,
-// separated by semicolon.
+// separated by semicolons.
+//
 // AddCookie only sanitizes c's name and value, and does not sanitize
 // a Cookie header already present in the request.
 func (p *Plan) AddCookie(c *http.Cookie) {

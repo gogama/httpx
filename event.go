@@ -4,8 +4,9 @@
 
 package httpx
 
-// An Event identifies the event type when installing or running an
-// Handler.
+// An Event identifies the event type when installing or running a
+// Handler. Install event handlers in a Client to extend it with custom
+// functionality.
 type Event int
 
 const (

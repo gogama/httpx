@@ -13,15 +13,18 @@ import (
 const badBodyTypeMsg = "httpx/request: invalid type (for body use nil, " +
 	"string, []byte, io.Reader or io.ReadCloser)"
 
-// BodyBytes converts a generic body parameter to a byte slice.
+// BodyBytes converts a generic body parameter to a byte slice for use
+// as a request plan body.
 //
 // The body parameter may be nil, or it may be a string, []byte,
 // io.Reader, or io.ReadCloser. The conversion logic is:
 //
 // • If body is nil, a nil byte slice and no error is returned.
 //
+// • If body is a []byte, body itself and no error is returned.
+//
 // • If body is a string, the built-in conversion from string to byte
-// slice, and no error is returned.
+// slice, and no error, is returned.
 //
 // • If body is an io.Reader or io.ReadCloser, the result of reading
 // the whole contents of the reader (and closing it if it implements
@@ -30,8 +33,8 @@ const badBodyTypeMsg = "httpx/request: invalid type (for body use nil, " +
 // and the error. Otherwise, the result is the entire contents read
 // from the reader and no error.
 //
-// • If body is any other type than those listed above, an empty byte
-// slice and an error is returned.
+// • If body is any other type than those listed above, a nil byte slice
+// and an error is returned.
 func BodyBytes(body interface{}) ([]byte, error) {
 	switch x := body.(type) {
 	case nil:

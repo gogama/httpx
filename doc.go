@@ -6,7 +6,7 @@
 Package httpx provides a robust HTTP client with retry support and other
 advanced features within a simple and familiar interface.
 
-Create a client to begin making requests.
+Create a Client to begin making requests.
 
 	client := &httpx.Client{}
 	ex, err := client.Get("https://www.example.com")
@@ -44,8 +44,8 @@ timeout policy using package timeout:
 		TimeoutPolicy: timeout.Fixed(10*time.Second)
 	}
 
-Lastly, to hook into the fine-grained details of the client's request
-execution logic, install a handler into the appropriate handler chain:
+To hook into the fine-grained details of the client's request execution
+logic, install a handler into the appropriate handler chain:
 
 	log := log.New(os.Stdout, "", log.LstdFlags)
 	handlers := &httpx.HandlerGroup{}

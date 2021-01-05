@@ -10,7 +10,7 @@ import (
 )
 
 // A Policy defines a timeout policy which may be plugged into the
-// reliable HTTP client (httpx.Client) to direct how to set the request
+// robust HTTP client (httpx.Client) to direct how to set the request
 // timeout for the initial attempt, as well as for any subsequent retries.
 //
 // Implementations of Policy must be safe for concurrent use by multiple
@@ -34,12 +34,12 @@ var Infinite Policy = Fixed(1<<63 - 1)
 
 // Fixed constructs a timeout policy that uses the same value to set
 // every attempt timeout. The return value is a timeout policy that
-// always returns the value f.
+// always returns the value d.
 //
 // Use Fixed to create the typical timeout behavior supported by most
 // retrying HTTP client software.
-func Fixed(f time.Duration) Policy {
-	return policy([]time.Duration{f})
+func Fixed(d time.Duration) Policy {
+	return policy([]time.Duration{d})
 }
 
 // Adaptive constructs a timeout policy that varies the next timeout

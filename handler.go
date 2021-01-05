@@ -9,7 +9,8 @@ import (
 )
 
 // A HandlerGroup is a group of event handler chains which can be
-// installed in a Client.
+// installed in a Client. Install event handlers to extend Client with
+// custom functionality.
 type HandlerGroup struct {
 	handlers [][]Handler
 }
@@ -42,14 +43,15 @@ func run(chain []Handler, evt Event, e *request.Execution) {
 }
 
 // A Handler handles the occurrence of an event during a request plan
-// execution.
+// execution. Install event handlers in a Client to extend the Client
+// with custom functionality.
 type Handler interface {
 	Handle(Event, *request.Execution)
 }
 
 // The HandlerFunc type is an adapter to allow the use of ordinary
 // functions as event handlers. If f is a function with appropriate
-// signature, then HandlerFunc(f)
+// signature, then HandlerFunc(f) is a Handler that calls f.
 type HandlerFunc func(Event, *request.Execution)
 
 // Handle calls f(evt, e).

@@ -23,7 +23,7 @@ import (
 type Category int
 
 const (
-	// Not indicates any non-transient error.
+	// Not indicates any non-transient error, or a nil error.
 	Not Category = iota
 	// Timeout indicates a client-side timeout. The server may be going
 	// through a temporary period of slowness, or the client may succeed
