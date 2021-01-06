@@ -5,11 +5,12 @@
 package retry
 
 import (
-	"httpx/request"
 	"net/http"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
 )

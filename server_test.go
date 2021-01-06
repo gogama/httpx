@@ -8,13 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"httpx/request"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/gogama/httpx/request"
 )
 
 var server = http.Server{

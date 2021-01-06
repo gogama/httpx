@@ -10,9 +10,9 @@ jobs:
     - go: "1.15.x"
       env: GO111MODULE=on
     - go: master
-      env: GO111MODULE=on
-    - go: master
       env: GO111MODULE=off
+    - go: master
+      env: GO111MODULE=on
 script:
   - '[ -z "$(gofmt -l .)" ]'
   - go test

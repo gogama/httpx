@@ -6,9 +6,10 @@ package httpx
 
 import (
 	"bytes"
-	"httpx/request"
 	"net/url"
 	"testing"
+
+	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
 

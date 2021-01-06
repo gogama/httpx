@@ -6,11 +6,12 @@ package retry
 
 import (
 	"fmt"
-	"httpx/request"
 	"math"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
 )

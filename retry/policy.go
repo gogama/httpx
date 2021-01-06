@@ -5,8 +5,9 @@
 package retry
 
 import (
-	"httpx/request"
 	"time"
+
+	"github.com/gogama/httpx/request"
 )
 
 // A Policy controls if and how retries are done in an HTTP request

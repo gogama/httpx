@@ -6,11 +6,12 @@ package timeout
 
 import (
 	"errors"
-	"httpx/request"
 	"math"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
 )

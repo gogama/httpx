@@ -5,9 +5,10 @@
 package retry
 
 import (
-	"httpx/request"
-	"httpx/transient"
 	"time"
+
+	"github.com/gogama/httpx/request"
+	"github.com/gogama/httpx/transient"
 )
 
 // A Decider decides if a retry should be done.

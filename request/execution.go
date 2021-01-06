@@ -6,9 +6,10 @@ package request
 
 import (
 	"context"
-	"httpx/transient"
 	"net/http"
 	"time"
+
+	"github.com/gogama/httpx/transient"
 )
 
 // An Execution represents the state of a single Plan execution.

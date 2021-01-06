@@ -6,8 +6,9 @@ package httpx
 
 import (
 	"fmt"
-	"httpx/request"
 	"testing"
+
+	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
 )

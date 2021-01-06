@@ -7,12 +7,13 @@ package retry
 import (
 	"errors"
 	"fmt"
-	"httpx/request"
 	"net/http"
 	"net/url"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
 )

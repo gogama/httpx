@@ -5,8 +5,9 @@
 package httpx
 
 import (
-	"httpx/request"
 	"net/url"
+
+	"github.com/gogama/httpx/request"
 )
 
 // Doer is the interface that wraps the basic Do method.

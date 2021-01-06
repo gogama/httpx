@@ -5,7 +5,7 @@
 package httpx
 
 import (
-	"httpx/request"
+	"github.com/gogama/httpx/request"
 )
 
 // A HandlerGroup is a group of event handler chains which can be

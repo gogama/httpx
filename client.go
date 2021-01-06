@@ -6,14 +6,15 @@ package httpx
 
 import (
 	"context"
-	"httpx/request"
-	"httpx/retry"
-	"httpx/timeout"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gogama/httpx/request"
+	"github.com/gogama/httpx/retry"
+	"github.com/gogama/httpx/timeout"
 )
 
 // An HTTPDoer implements a Do method in the same manner as the GoLang

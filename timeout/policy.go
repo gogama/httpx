@@ -5,8 +5,9 @@
 package timeout
 
 import (
-	"httpx/request"
 	"time"
+
+	"github.com/gogama/httpx/request"
 )
 
 // A Policy defines a timeout policy which may be plugged into the

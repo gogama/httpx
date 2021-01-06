@@ -5,10 +5,11 @@
 package retry
 
 import (
-	"httpx/request"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/gogama/httpx/request"
 )
 
 // A Waiter specifies how long to wait before retrying a failed HTTP request

@@ -9,10 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"httpx/request"
-	"httpx/retry"
-	"httpx/timeout"
-	"httpx/transient"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -21,6 +17,11 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gogama/httpx/request"
+	"github.com/gogama/httpx/retry"
+	"github.com/gogama/httpx/timeout"
+	"github.com/gogama/httpx/transient"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
