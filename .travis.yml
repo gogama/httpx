@@ -1,0 +1,18 @@
+language: go
+os:
+  - linux
+  - windows
+  - osx
+jobs:
+  include:
+    - go: "1.15.x"
+      env: GO111MODULE=off
+    - go: "1.15.x"
+      env: GO111MODULE=on
+    - go: master
+      env: GO111MODULE=on
+    - go: master
+      env: GO111MODULE=off
+script:
+  - '[ -z "$(gofmt -l .)" ]'
+  - go test
