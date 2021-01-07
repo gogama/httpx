@@ -39,38 +39,3 @@ func main() {
 ```
 
 Check out the full API documentation: https://pkg.go.dev/github.com/gogama/httpx.
-
----
-
-Usage Guide
-===========
-
-## Concepts
-
-## Retry
-
-## Timeouts
-
-## Event Handlers
-
----
-
-License
-=======
-
----
-
-FAQ
-===
-
-## How do I update to the latest httpx version?
-
-```sh
-go get -u github.com/gogama/httpx
-```
-
-## What Go versions are supported?
-
-## What alternatives to httpx are out there?
-
-## Why use httpx over the alternatives?
