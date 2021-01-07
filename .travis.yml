@@ -12,5 +12,5 @@ env:
   - GO111MODULE=off
   - GO111MODULE=on
 script:
-  - '[ -z "$(gofmt -l .)" ]'
+  - '[ "$TRAVIS_OS_NAME" == "windows" ] || [ -z "$(gofmt -l .)" ]'
   - go test ./...
