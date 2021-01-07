@@ -15,6 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gogama/httpx/retry"
+
+	"github.com/gogama/httpx/timeout"
+
 	"github.com/gogama/httpx/request"
 )
 
@@ -30,7 +34,21 @@ func TestMain(m *testing.M) {
 	defer func() {
 		_ = server.Close()
 	}()
+	waitForServerStart()
 	os.Exit(m.Run())
+}
+
+func waitForServerStart() {
+	cl := &Client{
+		RetryPolicy:   retry.NewPolicy(retry.Before(10*time.Second).And(retry.TransientErr), retry.DefaultWaiter),
+		TimeoutPolicy: timeout.Fixed(2 * time.Second),
+	}
+	p := (&serverInstruction{StatusCode: 200}).toPlan(context.Background(), "GET")
+	e, err := cl.Do(p)
+	if e.StatusCode() != 200 {
+		panic(fmt.Sprintf("Test server startup failed with status %d and error %v",
+			e.StatusCode(), err))
+	}
 }
 
 type bodyChunk struct {
