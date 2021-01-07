@@ -7,10 +7,13 @@ go:
   - 1.13.x
   - 1.14.x
   - 1.15.x
-  - master
 env:
   - GO111MODULE=off
   - GO111MODULE=on
 script:
   - '[ "$TRAVIS_OS_NAME" == "windows" ] || [ -z "$(gofmt -l .)" ]'
   - go test ./...
+jobs:
+  include:
+    - {os: linux, go: master, env: GO111MODULE=off}
+    - {os: linux, go: master, env: GO111MODULE=on}
