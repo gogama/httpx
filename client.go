@@ -167,29 +167,10 @@ func (c *Client) Do(p *request.Plan) (*request.Execution, error) {
 
 RetryLoop:
 	for {
-		ctx, cancel := context.WithTimeout(p.Context(), timeoutPolicy.Timeout(&e))
-		e.Request = p.ToRequest(ctx)
-		handlers.run(BeforeAttempt, &e)
-		var err error
-		e.Response, err = doer.Do(e.Request)
-		if err != nil {
-			e.Err = urlErrorWrap(p, err)
-		} else {
-			handlers.run(BeforeReadBody, &e)
-			// TODO: Push reading into a subroutine with a defer Close() so a
-			//       panic doesn't leave the body unclosed? Also should recover
-			//       even if the handler panics.
-			e.Body, err = ioutil.ReadAll(e.Response.Body)
-			if err != nil {
-				e.Err = urlErrorWrap(p, err)
-			}
-			_ = e.Response.Body.Close()
-		}
-		// FIXME: Need to make sure cancel() gets called in a panic.
+		sendAndReceive(p, &e, doer, handlers, timeoutPolicy)
 		// FIXME: Need to test for and differentiate between CANCELLING
 		//        the plan context (not a timeout, but an error) and the
 		//        deadline being exceeded (a timeout).
-		cancel()
 		planTimeout := false
 		if e.Timeout() {
 			e.AttemptTimeouts++
@@ -228,6 +209,32 @@ RetryLoop:
 	e.End = time.Now()
 	handlers.run(AfterExecutionEnd, &e)
 	return &e, e.Err
+}
+
+func sendAndReceive(p *request.Plan, e *request.Execution, doer HTTPDoer, handlers *HandlerGroup, timeoutPolicy timeout.Policy) {
+	ctx, cancel := context.WithTimeout(p.Context(), timeoutPolicy.Timeout(e))
+	defer cancel()
+	e.Request = p.ToRequest(ctx)
+	handlers.run(BeforeAttempt, e)
+	var err error
+	e.Response, err = doer.Do(e.Request)
+	if err != nil {
+		e.Err = urlErrorWrap(p, err)
+	} else {
+		readBody(p, e, handlers)
+	}
+}
+
+func readBody(p *request.Plan, e *request.Execution, handlers *HandlerGroup) {
+	defer func() {
+		_ = e.Response.Body.Close()
+	}()
+	handlers.run(BeforeReadBody, e)
+	var err error
+	e.Body, err = ioutil.ReadAll(e.Response.Body)
+	if err != nil {
+		e.Err = urlErrorWrap(p, err)
+	}
 }
 
 // Get issues a GET to the specified URL, using the same policies
@@ -315,3 +322,10 @@ func urlErrorOp(method string) string {
 	}
 	return method[:1] + strings.ToLower(method[1:])
 }
+
+// MISSING TEST CASES.
+//
+// 1. Cancelling a Plan context causes the whole execution to fail
+//    with a cancelled error, an DOES NOT cause the on plan cancelled
+//    handler.
+// 2. An explicit HTTP/2 test case. (Smoke test.)

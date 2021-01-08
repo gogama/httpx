@@ -35,6 +35,7 @@ func TestClient(t *testing.T) {
 	t.Run("attempt timeout", testClientAttemptTimeout)
 	t.Run("read body error", testClientBodyError)
 	t.Run("retry", testClientRetry)
+	t.Run("panic", testClientPanic)
 	t.Run("close idle connections", testClientCloseIdleConnections)
 }
 
@@ -237,26 +238,6 @@ func testClientZeroValue(t *testing.T) {
 			testCase.extraChecks(t, e, err)
 		})
 	}
-}
-
-func testClientCloseIdleConnections(t *testing.T) {
-	t.Run("with HTTPDoer support", func(t *testing.T) {
-		mockDoer := newMockHTTPDoer(t)
-		cl := Client{HTTPDoer: mockDoer}
-		cl.CloseIdleConnections()
-		mockDoer.AssertExpectations(t)
-	})
-	t.Run("without HTTPDoer support", func(t *testing.T) {
-		mockDoer := newMockHTTPDoerWithCloseIdleConnections(t)
-		mockDoer.On("CloseIdleConnections").Once()
-		cl := Client{HTTPDoer: mockDoer}
-		cl.CloseIdleConnections()
-		mockDoer.AssertExpectations(t)
-	})
-	t.Run("zero value", func(t *testing.T) {
-		cl := Client{}
-		cl.CloseIdleConnections()
-	})
 }
 
 func testClientAttemptTimeout(t *testing.T) {
@@ -592,6 +573,102 @@ func testClientRetryVarious(t *testing.T) {
 	}
 }
 
+func testClientPanic(t *testing.T) {
+	t.Run("ensure cancel called", testClientPanicEnsureCancelCalled)
+	t.Run("ensure Body closed", testClientPanicEnsureBodyClosed)
+}
+
+func testClientPanicEnsureCancelCalled(t *testing.T) {
+	// Ensure that if the event handler panics, the request context
+	// cancel function is called.
+	for _, evt := range []Event{BeforeAttempt, BeforeReadBody} {
+		t.Run(evt.Name(), func(t *testing.T) {
+			doer := newMockHTTPDoer(t)
+			handlers := &HandlerGroup{}
+			cl := &Client{
+				HTTPDoer: doer,
+				Handlers: handlers,
+			}
+			resp := &http.Response{
+				Body: ioutil.NopCloser(bytes.NewReader(nil)),
+			}
+			doer.On("Do", mock.Anything).Return(resp, nil).Once()
+			var e *request.Execution
+			handlers.mock(evt).On("Handle", evt, mock.MatchedBy(func(x *request.Execution) bool {
+				e = x
+				return true
+			})).Panic("omg omg").Once()
+
+			require.Panics(t, func() { cl.Get("test") })
+			require.NotNil(t, e)
+			assert.Equal(t, 0, e.Attempt)
+			require.NotNil(t, e.Request)
+			assert.Same(t, context.Canceled, e.Request.Context().Err())
+		})
+	}
+}
+
+func testClientPanicEnsureBodyClosed(t *testing.T) {
+	testCases := []struct {
+		name  string
+		setup func(*HandlerGroup, *mockReadCloser)
+	}{
+		{
+			name: "in BeforeReadBody handler",
+			setup: func(handlers *HandlerGroup, _ *mockReadCloser) {
+				handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.Anything).Panic("bah").Once()
+			},
+		},
+		{
+			name: "while reading body",
+			setup: func(_ *HandlerGroup, readCloser *mockReadCloser) {
+				readCloser.On("Read", mock.Anything).Panic("ahhhhh").Once()
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			doer := newMockHTTPDoer(t)
+			handlers := &HandlerGroup{}
+			cl := &Client{
+				HTTPDoer: doer,
+				Handlers: handlers,
+			}
+			readCloser := newMockReadCloser(t)
+			resp := &http.Response{
+				Body: readCloser,
+			}
+			doer.On("Do", mock.Anything).Return(resp, nil).Once()
+			readCloser.On("Close").Return(nil).Once()
+			testCase.setup(handlers, readCloser)
+
+			require.Panics(t, func() { cl.Get("test") })
+			doer.AssertExpectations(t)
+			readCloser.AssertExpectations(t)
+		})
+	}
+}
+
+func testClientCloseIdleConnections(t *testing.T) {
+	t.Run("with HTTPDoer support", func(t *testing.T) {
+		mockDoer := newMockHTTPDoer(t)
+		cl := Client{HTTPDoer: mockDoer}
+		cl.CloseIdleConnections()
+		mockDoer.AssertExpectations(t)
+	})
+	t.Run("without HTTPDoer support", func(t *testing.T) {
+		mockDoer := newMockHTTPDoerWithCloseIdleConnections(t)
+		mockDoer.On("CloseIdleConnections").Once()
+		cl := Client{HTTPDoer: mockDoer}
+		cl.CloseIdleConnections()
+		mockDoer.AssertExpectations(t)
+	})
+	t.Run("zero value", func(t *testing.T) {
+		cl := Client{}
+		cl.CloseIdleConnections()
+	})
+}
+
 type mockHTTPDoer struct {
 	mock.Mock
 }
@@ -735,5 +812,3 @@ func (m *mockReadCloser) Close() error {
 	args := m.Called()
 	return args.Error(0)
 }
-
-// TODO: Need to add an HTTP2 test here to make sure that works.
