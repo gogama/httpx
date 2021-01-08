@@ -176,6 +176,9 @@ RetryLoop:
 			e.Err = urlErrorWrap(p, err)
 		} else {
 			handlers.run(BeforeReadBody, &e)
+			// TODO: Push reading into a subroutine with a defer Close() so a
+			//       panic doesn't leave the body unclosed? Also should recover
+			//       even if the handler panics.
 			e.Body, err = ioutil.ReadAll(e.Response.Body)
 			if err != nil {
 				e.Err = urlErrorWrap(p, err)
@@ -206,6 +209,9 @@ RetryLoop:
 			case <-timer.C:
 				break
 			case <-p.Context().Done():
+				// FIXME: Done might be closed for EITHER because of a
+				//        cancellation OR because of a timeout. Need to
+				//        set the error accordingly and test properly.
 				e.Err = urlErrorWrap(p, context.DeadlineExceeded)
 				handlers.run(AfterPlanTimeout, &e)
 				break RetryLoop
