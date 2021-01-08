@@ -81,7 +81,7 @@ e, err := client.Do(&p)
 ...
 ```
 
-##### Execution
+#### Execution
 
 A `request.Execution` represents the state of a plan execution. While the plan
 is being executed, `Execution` captures the execution state for sharing with
