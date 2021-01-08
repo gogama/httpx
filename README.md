@@ -83,10 +83,11 @@ e, err := client.Do(&p)
 
 #### Execution
 
-A `request.Execution` represents the state of a plan execution. While the plan
-is being executed, `Execution` captures the execution state for sharing with
-retry policies, timeout policies, and event handlers. After the plan execution
-is finished, `Execution` represents the final result of executing the plan.
+A [`request.Execution`](https://pkg.go.dev/github.com/gogama/httpx/request#Execution)
+represents the state of a plan execution. While the plan is being executed,
+`Execution` captures the execution state for sharing with retry policies,
+timeout policies, and event handlers. After the plan execution is finished,
+`Execution` represents the final result of executing the plan.
 
 ### Clients
 
