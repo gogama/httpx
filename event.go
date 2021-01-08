@@ -14,7 +14,7 @@ const (
 	// plan execution starts.
 	//
 	// When Client fires BeforeExecutionStart, the execution is
-	// non-nil but the only field that have been set is the plan.
+	// non-nil but the only field that has been set is the plan.
 	BeforeExecutionStart Event = iota
 	// BeforeAttempt identifies the event that occurs before each
 	// individual HTTP request attempt during the plan execution.
