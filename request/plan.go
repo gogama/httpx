@@ -15,8 +15,6 @@ import (
 	"net/http"
 	urlpkg "net/url"
 	"strings"
-
-	"golang.org/x/net/http/httpguts"
 )
 
 var (
@@ -237,7 +235,6 @@ func basicAuth(username, password string) string {
 	return base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-// validMethod is lifted from net/http/request.go with minor modification
 func validMethod(method string) bool {
 	/*
 	     Method         = "OPTIONS"                ; Section 9.2
@@ -251,13 +248,103 @@ func validMethod(method string) bool {
 	                    | extension-method
 	   extension-method = token
 	     token          = 1*<any CHAR except CTLs or separators>
+
+	   We don't need to check for length more than 1 because we always
+	   interpret the empty string as "GET".
 	*/
 	return strings.IndexFunc(method, isNotToken) == -1
 }
 
-// isNotToken is lifted verbatim from net/http/http.go
 func isNotToken(r rune) bool {
-	return !httpguts.IsTokenRune(r)
+	return !isTokenRune(r)
+}
+
+// isTokenRune is lifted verbatim from x/net/http/httpguts/httplex.go
+// (but converted to non-exported). It classifies a rune as being valid
+// for a token as defined in https://tools.ietf.org/html/rfc7230#section-3.2.6
+func isTokenRune(r rune) bool {
+	i := int(r)
+	return i < len(isTokenTable) && isTokenTable[i]
+}
+
+var isTokenTable = [127]bool{
+	'!':  true,
+	'#':  true,
+	'$':  true,
+	'%':  true,
+	'&':  true,
+	'\'': true,
+	'*':  true,
+	'+':  true,
+	'-':  true,
+	'.':  true,
+	'0':  true,
+	'1':  true,
+	'2':  true,
+	'3':  true,
+	'4':  true,
+	'5':  true,
+	'6':  true,
+	'7':  true,
+	'8':  true,
+	'9':  true,
+	'A':  true,
+	'B':  true,
+	'C':  true,
+	'D':  true,
+	'E':  true,
+	'F':  true,
+	'G':  true,
+	'H':  true,
+	'I':  true,
+	'J':  true,
+	'K':  true,
+	'L':  true,
+	'M':  true,
+	'N':  true,
+	'O':  true,
+	'P':  true,
+	'Q':  true,
+	'R':  true,
+	'S':  true,
+	'T':  true,
+	'U':  true,
+	'W':  true,
+	'V':  true,
+	'X':  true,
+	'Y':  true,
+	'Z':  true,
+	'^':  true,
+	'_':  true,
+	'`':  true,
+	'a':  true,
+	'b':  true,
+	'c':  true,
+	'd':  true,
+	'e':  true,
+	'f':  true,
+	'g':  true,
+	'h':  true,
+	'i':  true,
+	'j':  true,
+	'k':  true,
+	'l':  true,
+	'm':  true,
+	'n':  true,
+	'o':  true,
+	'p':  true,
+	'q':  true,
+	'r':  true,
+	's':  true,
+	't':  true,
+	'u':  true,
+	'v':  true,
+	'w':  true,
+	'x':  true,
+	'y':  true,
+	'z':  true,
+	'|':  true,
+	'~':  true,
 }
 
 // hasPort is lifted verbatim from net/http/http.go
