@@ -193,7 +193,7 @@ handlers.PushBack(httpx.BeforeAttempt, httpx.HandlerFunc(hf2))
 // When the BeforeAttempt event happens, client will execute hf1 first,
 // and then hf2.
 client := &httpx.Client{
-	Handlers: handlers,
+	Handlers: handlers,     // If omitted/nil, an empty handler group is used
 }
 ```
 
@@ -234,7 +234,7 @@ Alternatives include:
 
 ## Why use httpx over the alternatives?
 
-The alternative frameworks tend to be missing three features that are fundamental
+The alternative libraries tend to be missing three features that are fundamental
 to providing top-tier HTTP reliability:
 
 1. **Retry on failed response body read**. Because the response body is an
