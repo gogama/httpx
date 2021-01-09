@@ -36,6 +36,7 @@ func TestClient(t *testing.T) {
 	t.Run("read body error", testClientBodyError)
 	t.Run("retry", testClientRetry)
 	t.Run("panic", testClientPanic)
+	t.Run("plan cancel", testClientPlanCancel)
 	t.Run("close idle connections", testClientCloseIdleConnections)
 }
 
@@ -382,6 +383,7 @@ func testClientRetry(t *testing.T) {
 }
 
 func testClientRetryPlanTimeout(t *testing.T) {
+	// Force a retry, then make the retry wait so long the plan times out!
 	mockDoer := newMockHTTPDoer(t)
 	mockRetryPolicy := newMockRetryPolicy(t)
 	cl := Client{
@@ -649,6 +651,63 @@ func testClientPanicEnsureBodyClosed(t *testing.T) {
 	}
 }
 
+func testClientPlanCancel(t *testing.T) {
+	t.Run("plan cancelled during request", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		doer := newMockHTTPDoer(t)
+		doer.On("Do", mock.AnythingOfType("*http.Request")).
+			Run(func(_ mock.Arguments) { cancel() }).
+			Return(nil, context.Canceled).
+			Once()
+		cl := &Client{
+			HTTPDoer: doer,
+		}
+		p, err := request.NewPlanWithContext(ctx, "", "test", nil)
+		require.NoError(t, err)
+
+		e, err := cl.Do(p)
+
+		doer.AssertExpectations(t)
+		require.NotNil(t, e)
+		assert.Error(t, err)
+		assert.Same(t, context.Canceled, err)
+		assert.Same(t, err, e.Err)
+		assert.Same(t, p, e.Plan)
+	})
+	t.Run("plan cancelled after request", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		doer := newMockHTTPDoer(t)
+		resp := &http.Response{
+			StatusCode: 99,
+			Body:       ioutil.NopCloser(strings.NewReader("bar")),
+		}
+		doer.On("Do", mock.AnythingOfType("*http.Request")).
+			Return(resp, nil).
+			Once()
+		handlers := &HandlerGroup{}
+		handlers.mock(AfterAttempt).
+			On("Handle", AfterAttempt, mock.Anything).
+			Run(func(_ mock.Arguments) { cancel() }).
+			Once()
+		cl := &Client{
+			HTTPDoer: doer,
+			Handlers: handlers,
+		}
+		p, err := request.NewPlanWithContext(ctx, "POST", "test", "foo")
+		require.NoError(t, err)
+
+		e, err := cl.Do(p)
+
+		doer.AssertExpectations(t)
+		handlers.assertExpectations(t)
+		require.NotNil(t, e)
+		assert.Error(t, err)
+		assert.Same(t, context.Canceled, err)
+		assert.Same(t, err, e.Err)
+		assert.Same(t, p, e.Plan)
+	})
+}
+
 func testClientCloseIdleConnections(t *testing.T) {
 	t.Run("with HTTPDoer support", func(t *testing.T) {
 		mockDoer := newMockHTTPDoer(t)
@@ -681,7 +740,11 @@ func newMockHTTPDoer(t *testing.T) *mockHTTPDoer {
 
 func (m *mockHTTPDoer) Do(req *http.Request) (*http.Response, error) {
 	args := m.Called(req)
-	return args.Get(0).(*http.Response), args.Error(1)
+	err := args.Error(1)
+	if resp, ok := args.Get(0).(*http.Response); ok {
+		return resp, err
+	}
+	return nil, err
 }
 
 type mockHTTPDoerWithCloseIdleConnections struct {

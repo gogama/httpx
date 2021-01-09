@@ -168,20 +168,17 @@ func (c *Client) Do(p *request.Plan) (*request.Execution, error) {
 RetryLoop:
 	for {
 		sendAndReceive(p, &e, doer, handlers, timeoutPolicy)
-		// FIXME: Need to test for and differentiate between CANCELLING
-		//        the plan context (not a timeout, but an error) and the
-		//        deadline being exceeded (a timeout).
-		planTimeout := false
 		if e.Timeout() {
 			e.AttemptTimeouts++
 			handlers.run(AfterAttemptTimeout, &e)
-			if deadline, ok := p.Context().Deadline(); ok && time.Now().After(deadline) {
-				planTimeout = true
-			}
 		}
 		handlers.run(AfterAttempt, &e)
-		if planTimeout {
+		planCtxErr := p.Context().Err()
+		if planCtxErr == context.DeadlineExceeded {
 			handlers.run(AfterPlanTimeout, &e)
+			break
+		} else if planCtxErr != nil {
+			e.Err = planCtxErr
 			break
 		} else if retryPolicy.Decide(&e) {
 			wait := retryPolicy.Wait(&e)
@@ -190,11 +187,11 @@ RetryLoop:
 			case <-timer.C:
 				break
 			case <-p.Context().Done():
-				// FIXME: Done might be closed for EITHER because of a
-				//        cancellation OR because of a timeout. Need to
-				//        set the error accordingly and test properly.
-				e.Err = urlErrorWrap(p, context.DeadlineExceeded)
-				handlers.run(AfterPlanTimeout, &e)
+				err := p.Context().Err()
+				e.Err = urlErrorWrap(p, err)
+				if err == context.DeadlineExceeded {
+					handlers.run(AfterPlanTimeout, &e)
+				}
 				break RetryLoop
 			}
 			e.Response = nil
@@ -325,7 +322,4 @@ func urlErrorOp(method string) string {
 
 // MISSING TEST CASES.
 //
-// 1. Cancelling a Plan context causes the whole execution to fail
-//    with a cancelled error, an DOES NOT cause the on plan cancelled
-//    handler.
-// 2. An explicit HTTP/2 test case. (Smoke test.)
+// 1. An explicit HTTP/2 test case. (Smoke test.)
