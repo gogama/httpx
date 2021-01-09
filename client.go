@@ -319,7 +319,3 @@ func urlErrorOp(method string) string {
 	}
 	return method[:1] + strings.ToLower(method[1:])
 }
-
-// MISSING TEST CASES.
-//
-// 1. An explicit HTTP/2 test case. (Smoke test.)

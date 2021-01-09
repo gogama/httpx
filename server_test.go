@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -22,32 +23,48 @@ import (
 	"github.com/gogama/httpx/request"
 )
 
-var server = http.Server{
-	Addr:    "127.0.0.1:10449",
-	Handler: http.HandlerFunc(serverHandler),
-}
+var httpServer = httptest.NewUnstartedServer(http.HandlerFunc(serverHandler))
+var httpsServer = httptest.NewUnstartedServer(http.HandlerFunc(serverHandler))
+var http2Server = httptest.NewUnstartedServer(http.HandlerFunc(serverHandler))
+var servers = []*httptest.Server{httpServer, httpsServer, http2Server}
 
 func TestMain(m *testing.M) {
-	go func() {
-		_ = server.ListenAndServe()
-	}()
-	defer func() {
-		_ = server.Close()
-	}()
-	waitForServerStart()
+	httpServer.Start()
+	defer httpServer.Close()
+	httpsServer.StartTLS()
+	defer httpsServer.Close()
+	http2Server.EnableHTTP2 = true
+	http2Server.StartTLS()
+	defer http2Server.Close()
+	waitForServerStart(httpServer)
+	waitForServerStart(httpsServer)
 	os.Exit(m.Run())
 }
 
-func waitForServerStart() {
+func waitForServerStart(server *httptest.Server) {
 	cl := &Client{
+		HTTPDoer:      server.Client(),
 		RetryPolicy:   retry.NewPolicy(retry.Before(10*time.Second).And(retry.TransientErr), retry.DefaultWaiter),
 		TimeoutPolicy: timeout.Fixed(2 * time.Second),
 	}
-	p := (&serverInstruction{StatusCode: 200}).toPlan(context.Background(), "GET")
+	p := (&serverInstruction{StatusCode: 200}).toPlan(context.Background(), "GET", server)
 	e, err := cl.Do(p)
 	if e.StatusCode() != 200 {
 		panic(fmt.Sprintf("Test server startup failed with status %d and error %v",
 			e.StatusCode(), err))
+	}
+}
+
+func serverName(server *httptest.Server) string {
+	switch server {
+	case httpServer:
+		return "http"
+	case httpsServer:
+		return "https"
+	case http2Server:
+		return "http2"
+	default:
+		panic("unknown server")
 	}
 }
 
@@ -81,8 +98,8 @@ func (i *serverInstruction) toJSON() []byte {
 	return b
 }
 
-func (i *serverInstruction) toPlan(ctx context.Context, method string) *request.Plan {
-	p, err := request.NewPlanWithContext(ctx, method, serverURL(), i.toJSON())
+func (i *serverInstruction) toPlan(ctx context.Context, method string, server *httptest.Server) *request.Plan {
+	p, err := request.NewPlanWithContext(ctx, method, server.URL, i.toJSON())
 	if err != nil {
 		panic(err)
 	}
@@ -103,10 +120,6 @@ func (i *serverInstruction) fromRequest(req *http.Request) error {
 	}
 
 	return i.fromJSON(b)
-}
-
-func serverURL() string {
-	return "http://" + server.Addr
 }
 
 func serverHandler(w http.ResponseWriter, req *http.Request) {

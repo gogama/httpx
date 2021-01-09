@@ -232,7 +232,7 @@ func testClientZeroValue(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			cl := &Client{} // Must use zero value!
 
-			p := testCase.inst.toPlan(context.Background(), "POST")
+			p := testCase.inst.toPlan(context.Background(), "POST", httpServer)
 
 			e, err := cl.Do(p)
 
@@ -250,93 +250,101 @@ func testClientAttemptTimeout(t *testing.T) {
 	for i, testCase := range testCases {
 		isPlanTimeout := i == 1
 		t.Run(testCase, func(t *testing.T) {
-			cl := &Client{
-				HTTPDoer:      &http.Client{},
-				TimeoutPolicy: timeout.Fixed(1 * time.Millisecond),
-				RetryPolicy:   retry.Never,
-				Handlers:      &HandlerGroup{},
-			}
-			cl.Handlers.mock(BeforeExecutionStart).On("Handle", BeforeExecutionStart, mock.Anything).Return().Once()
-			cl.Handlers.mock(BeforeAttempt).On("Handle", BeforeAttempt, mock.Anything).Return().Once()
-			cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
-			if isPlanTimeout {
-				cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
-			}
-			cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
-			cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
+			for _, server := range servers {
+				t.Run(serverName(server), func(t *testing.T) {
+					cl := &Client{
+						HTTPDoer:      server.Client(),
+						TimeoutPolicy: timeout.Fixed(1 * time.Millisecond),
+						RetryPolicy:   retry.Never,
+						Handlers:      &HandlerGroup{},
+					}
+					cl.Handlers.mock(BeforeExecutionStart).On("Handle", BeforeExecutionStart, mock.Anything).Return().Once()
+					cl.Handlers.mock(BeforeAttempt).On("Handle", BeforeAttempt, mock.Anything).Return().Once()
+					cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
+					if isPlanTimeout {
+						cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
+					}
+					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
+					cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
 
-			ctx := context.Background()
-			var cancel context.CancelFunc
-			if isPlanTimeout {
-				ctx, cancel = context.WithTimeout(ctx, 5*time.Microsecond)
-			}
-			p := (&serverInstruction{StatusCode: 200, HeaderPause: 100 * time.Millisecond}).toPlan(ctx, "POST")
-			e, err := cl.Do(p)
-			if cancel != nil {
-				cancel()
-			}
+					ctx := context.Background()
+					var cancel context.CancelFunc
+					if isPlanTimeout {
+						ctx, cancel = context.WithTimeout(ctx, 5*time.Microsecond)
+					}
+					p := (&serverInstruction{StatusCode: 200, HeaderPause: 100 * time.Millisecond}).toPlan(ctx, "POST", server)
+					e, err := cl.Do(p)
+					if cancel != nil {
+						cancel()
+					}
 
-			cl.Handlers.assertExpectations(t)
-			require.NotNil(t, e)
-			assert.Same(t, err, e.Err)
-			assert.Equal(t, transient.Timeout, transient.Categorize(err))
-			assert.IsType(t, &url.Error{}, err)
-			assert.NotNil(t, e.Request)
-			assert.Nil(t, e.Response)
-			assert.Equal(t, e.Attempt, 0)
-			assert.Equal(t, e.AttemptTimeouts, 1)
+					cl.Handlers.assertExpectations(t)
+					require.NotNil(t, e)
+					assert.Same(t, err, e.Err)
+					assert.Equal(t, transient.Timeout, transient.Categorize(err))
+					assert.IsType(t, &url.Error{}, err)
+					assert.NotNil(t, e.Request)
+					assert.Nil(t, e.Response)
+					assert.Equal(t, e.Attempt, 0)
+					assert.Equal(t, e.AttemptTimeouts, 1)
+				})
+			}
 		})
 	}
 }
 
 func testClientBodyError(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
-		cl := &Client{
-			HTTPDoer:      &http.Client{},
-			TimeoutPolicy: timeout.Fixed(50 * time.Millisecond),
-			RetryPolicy:   retry.Never,
-			Handlers:      &HandlerGroup{},
+		for _, server := range servers {
+			t.Run(serverName(server), func(t *testing.T) {
+				cl := &Client{
+					HTTPDoer:      server.Client(),
+					TimeoutPolicy: timeout.Fixed(50 * time.Millisecond),
+					RetryPolicy:   retry.Never,
+					Handlers:      &HandlerGroup{},
+				}
+				trace := cl.addTraceHandlers()
+				p := (&serverInstruction{
+					StatusCode: 200,
+					Body: []bodyChunk{
+						{
+							Data: []byte("hello"),
+						},
+						{
+							Pause: 100 * time.Millisecond,
+							Data:  []byte("world"),
+						},
+					},
+				}).toPlan(context.Background(), "POST", server)
+
+				e, err := cl.Do(p)
+
+				require.NotNil(t, e)
+				assert.Error(t, err)
+				assert.Error(t, e.Err)
+				assert.Same(t, err, e.Err)
+				assert.Equal(t, transient.Timeout, transient.Categorize(err))
+				require.IsType(t, &url.Error{}, err)
+				urlError := err.(*url.Error)
+				assert.True(t, urlError.Timeout())
+				assert.Equal(t, "Post", urlError.Op)
+				assert.Equal(t, []string{
+					"BeforeExecutionStart",
+					"BeforeAttempt",
+					"BeforeReadBody",
+					"AfterAttemptTimeout",
+					"AfterAttempt",
+					"AfterExecutionEnd",
+				}, trace.calls)
+				require.NotNil(t, e.Request)
+				assert.Equal(t, e.Request.URL.String(), urlError.URL)
+				assert.NotNil(t, e.Response)
+				assert.NotNil(t, e.Body) // ioutil.ReadAll returns non-nil []byte plus error
+				assert.Equal(t, 0, e.Attempt)
+				assert.Equal(t, 1, e.AttemptTimeouts)
+				assert.Equal(t, 200, e.StatusCode())
+			})
 		}
-		trace := cl.addTraceHandlers()
-		p := (&serverInstruction{
-			StatusCode: 200,
-			Body: []bodyChunk{
-				{
-					Data: []byte("hello"),
-				},
-				{
-					Pause: 100 * time.Millisecond,
-					Data:  []byte("world"),
-				},
-			},
-		}).toPlan(context.Background(), "POST")
-
-		e, err := cl.Do(p)
-
-		require.NotNil(t, e)
-		assert.Error(t, err)
-		assert.Error(t, e.Err)
-		assert.Same(t, err, e.Err)
-		assert.Equal(t, transient.Timeout, transient.Categorize(err))
-		require.IsType(t, &url.Error{}, err)
-		urlError := err.(*url.Error)
-		assert.True(t, urlError.Timeout())
-		assert.Equal(t, "Post", urlError.Op)
-		assert.Equal(t, []string{
-			"BeforeExecutionStart",
-			"BeforeAttempt",
-			"BeforeReadBody",
-			"AfterAttemptTimeout",
-			"AfterAttempt",
-			"AfterExecutionEnd",
-		}, trace.calls)
-		require.NotNil(t, e.Request)
-		assert.Equal(t, e.Request.URL.String(), urlError.URL)
-		assert.NotNil(t, e.Response)
-		assert.NotNil(t, e.Body) // ioutil.ReadAll returns non-nil []byte plus error
-		assert.Equal(t, 0, e.Attempt)
-		assert.Equal(t, 1, e.AttemptTimeouts)
-		assert.Equal(t, 200, e.StatusCode())
 	})
 
 	t.Run("close", func(t *testing.T) {
