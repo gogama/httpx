@@ -1,7 +1,7 @@
 httpx - Reliable HTTP with retry and more
 =========================================
 
-[![Build Status](https://travis-ci.com/gogama/httpx.svg)](https://travis-ci.com/gogama/httpx) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/httpx)](https://goreportcard.com/report/github.com/stretchr/testify) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/httpx)](https://pkg.go.dev/github.com/gogama/httpx)
+[![Build Status](https://travis-ci.com/gogama/httpx.svg)](https://travis-ci.com/gogama/httpx) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/httpx)](https://goreportcard.com/report/github.com/gogama/httpx) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/httpx)](https://pkg.go.dev/github.com/gogama/httpx)
 
 Package httpx provides a Go code (GoLang) HTTP client with
 enterprise-level reliability and a familiar interface.
