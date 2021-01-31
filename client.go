@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gogama/httpx/racing"
 	"github.com/gogama/httpx/request"
 	"github.com/gogama/httpx/retry"
 	"github.com/gogama/httpx/timeout"
@@ -89,16 +90,22 @@ type Client struct {
 	// If HTTPDoer is nil, http.DefaultClient from the standard net/http
 	// package is used.
 	HTTPDoer HTTPDoer
-	// RetryPolicy decides when to retry failed attempts and how long
-	// to sleep after a failed attempt before retrying.
-	//
-	// If RetryPolicy is nil, retry.DefaultPolicy is used.
-	RetryPolicy retry.Policy
 	// TimeoutPolicy specifies how to set timeouts on individual request
 	// attempts.
 	//
 	// If TimeoutPolicy is nil, timeout.DefaultPolicy is used.
 	TimeoutPolicy timeout.Policy
+	// RetryPolicy decides when to retry failed attempts and how long
+	// to sleep after a failed attempt before retrying.
+	//
+	// If RetryPolicy is nil, retry.DefaultPolicy is used.
+	RetryPolicy retry.Policy
+	// RacingPolicy specifies how to race concurrent requests if this
+	// advanced feature is desired.
+	//
+	// If RacingPolicy is nil, racing.Disabled, which never races
+	// concurrent requests, is used.
+	RacingPolicy racing.Policy
 	// Handlers allows custom handler chains to be invoked when
 	// designated events occur during execution of a request plan.
 	//
@@ -142,95 +149,327 @@ type Client struct {
 // For simple use cases, the Get, Head, Post, and PostForm methods may
 // prove easier to use than Do.
 func (c *Client) Do(p *request.Plan) (*request.Execution, error) {
-	e := request.Execution{
-		Plan: p,
+	es := c.newExecState(p)
+	defer es.cleanup()
+
+	es.handlers.run(BeforeExecutionStart, es.exec)
+	es.exec.Start = time.Now()
+
+	for es.wave() && es.retry() {
+		es.exec.Wave++
 	}
 
-	doer := c.doer()
-
-	timeoutPolicy := c.TimeoutPolicy
-	if timeoutPolicy == nil {
-		timeoutPolicy = timeout.DefaultPolicy
-	}
-
-	retryPolicy := c.RetryPolicy
-	if retryPolicy == nil {
-		retryPolicy = retry.DefaultPolicy
-	}
-
-	handlers := c.Handlers
-	if handlers == nil {
-		handlers = &emptyHandlers
-	}
-	handlers.run(BeforeExecutionStart, &e)
-	e.Start = time.Now()
-
-RetryLoop:
-	for {
-		sendAndReceive(p, &e, doer, handlers, timeoutPolicy)
-		if e.Timeout() {
-			e.AttemptTimeouts++
-			handlers.run(AfterAttemptTimeout, &e)
+	if es.planCancelled() {
+		err := urlErrorWrap(es.plan, es.plan.Context().Err())
+		es.exec.Err = err
+		if err.Timeout() {
+			es.handlers.run(AfterPlanTimeout, es.exec)
 		}
-		handlers.run(AfterAttempt, &e)
-		planCtxErr := p.Context().Err()
-		if planCtxErr == context.DeadlineExceeded {
-			handlers.run(AfterPlanTimeout, &e)
-			break
-		} else if planCtxErr != nil {
-			e.Err = planCtxErr
-			break
-		} else if retryPolicy.Decide(&e) {
-			wait := retryPolicy.Wait(&e)
-			timer := time.NewTimer(wait)
-			select {
-			case <-timer.C:
-				break
-			case <-p.Context().Done():
-				err := p.Context().Err()
-				e.Err = urlErrorWrap(p, err)
-				if err == context.DeadlineExceeded {
-					handlers.run(AfterPlanTimeout, &e)
+	}
+
+	es.exec.End = time.Now()
+	es.handlers.run(AfterExecutionEnd, es.exec)
+	return es.exec, es.exec.Err
+}
+
+type execState struct {
+	plan *request.Plan
+	exec *request.Execution
+
+	// Resolved policy references. These values do not change once set.
+	httpDoer      HTTPDoer
+	timeoutPolicy timeout.Policy
+	retryPolicy   retry.Policy
+	racingPolicy  racing.Policy
+	handlers      *HandlerGroup
+
+	// Variable state.
+	baseAttempt  int
+	waveAttempts []*attemptState
+	signal       chan *attemptState
+	timer        *time.Timer
+	ding         bool
+}
+
+func (es *execState) wave() bool {
+	es.waveAttempts = es.waveAttempts[:0]
+	defer es.cleanupWave()
+	attempt := es.newAttemptState(0)
+	es.waveAttempts = append(es.waveAttempts, attempt)
+	es.exec.Racing = 1
+	es.handleCheckpoint(attempt)
+
+	es.installAttempt(0, nil, nil, nil, nil)
+	d := es.racingPolicy.Schedule(es.exec)
+	es.setTimer(d)
+
+	// Flag drain indicates whether to finish all attempts in the wave. It is
+	// set true as soon as any one attempt in the wave finishes, whether the
+	// attempt is retryable or not.
+	// Flag halt indicates whether to stop the whole execution. It is set true
+	// as soon as a non-retryable attempt is detected.
+	drain, halt := false, false
+
+	// Loop until all concurrent attempts have stopped.
+	for es.exec.Racing > 0 {
+		select {
+		case attempt = <-es.signal: // Event received from a running attempt
+			d, h := es.handleCheckpoint(attempt)
+			drain = drain || d
+			// If the retry decision is already known, cancel all the other
+			// running requests.
+			if h && !halt {
+				halt = true
+				for i, as := range es.waveAttempts {
+					if i != attempt.index {
+						as.cancel(true)
+					}
 				}
-				break RetryLoop
 			}
-			e.Response = nil
-			e.Err = nil
-			e.Body = nil
-			e.Attempt++
-		} else {
-			break
+		case <-es.timer.C: // Next concurrent attempt start scheduled
+			es.ding = true
+			es.installAttempt(len(es.waveAttempts), nil, nil, nil, nil)
+			if !drain && es.racingPolicy.Confirm(es.exec) {
+				attempt = es.newAttemptState(len(es.waveAttempts) + 1)
+				es.waveAttempts = append(es.waveAttempts, attempt)
+				es.exec.Racing++
+				es.handleCheckpoint(attempt)
+				es.installAttempt(attempt.index, nil, nil, nil, nil)
+				d = es.racingPolicy.Schedule(es.exec)
+				es.setTimer(d)
+			}
 		}
 	}
 
-	e.End = time.Now()
-	handlers.run(AfterExecutionEnd, &e)
-	return &e, e.Err
+	// Pick the winning attempt among the concurrent attempts in the wave.
+	for i, as := range es.waveAttempts {
+		if !as.redundant {
+			es.installAttempt(i, as.req, as.resp, as.err, as.body)
+			return halt
+		}
+	}
+
+	// If we get here, there was no non-redundant attempt found.
+	panic("httpx: no usable attempt")
 }
 
-func sendAndReceive(p *request.Plan, e *request.Execution, doer HTTPDoer, handlers *HandlerGroup, timeoutPolicy timeout.Policy) {
-	ctx, cancel := context.WithTimeout(p.Context(), timeoutPolicy.Timeout(e))
-	defer cancel()
-	e.Request = p.ToRequest(ctx)
-	handlers.run(BeforeAttempt, e)
-	var err error
-	e.Response, err = doer.Do(e.Request)
-	if err != nil {
-		e.Err = urlErrorWrap(p, err)
-	} else {
-		readBody(p, e, handlers)
+func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, stop bool) {
+	es.installAttempt(attempt.index, attempt.req, attempt.resp, attempt.err, attempt.body)
+	switch attempt.checkpoint {
+	case createdRequest:
+		es.handlers.run(BeforeAttempt, es.exec)
+		attempt.req = es.exec.Request
+		attempt.checkpoint = sendingRequest
+		go attempt.sendAndReadBody()
+		return
+	case sentRequest:
+		attempt.checkpoint = sentRequestHandle
+		if attempt.err == nil {
+			es.handlers.run(BeforeReadBody, es.exec)
+			attempt.resp = es.exec.Response
+			attempt.checkpoint = readingBody
+			attempt.ready <- struct{}{}
+			return
+		}
+		fallthrough
+	case readBody:
+		attempt.checkpoint = readBodyHandle
+		if es.exec.Timeout() {
+			es.exec.AttemptTimeouts++
+			es.handlers.run(AfterAttemptTimeout, es.exec)
+		}
+		es.handlers.run(AfterAttempt, es.exec)
+		es.exec.Racing--
+		attempt.resp = es.exec.Response
+		attempt.body = es.exec.Body
+		attempt.checkpoint = done
+		drain = true
+		stop = es.planCancelled() || es.retryPolicy.Decide(es.exec)
+		return
+	default:
+		panic("httpx: bad attempt checkpoint")
 	}
 }
 
-func readBody(p *request.Plan, e *request.Execution, handlers *HandlerGroup) {
-	defer func() {
-		_ = e.Response.Body.Close()
-	}()
-	handlers.run(BeforeReadBody, e)
+func (es *execState) retry() bool {
+	d := es.retryPolicy.Wait(es.exec)
+	es.setTimer(d)
+	select {
+	case <-es.timer.C:
+		es.ding = true
+		return true // Retry wait period expired
+	case <-es.plan.Context().Done():
+		return false // Plan cancelled or timed out
+	}
+}
+
+func (es *execState) setTimer(d time.Duration) {
+	if !es.ding && !es.timer.Stop() {
+		<-es.timer.C
+	}
+
+	if d == 0 {
+		d = 1<<63 - 1
+	}
+	es.timer.Reset(d)
+	es.ding = false
+}
+
+func (es *execState) installAttempt(index int, req *http.Request, resp *http.Response, err error, body []byte) {
+	e := es.exec
+	e.Attempt = es.baseAttempt + index
+	e.Request = req
+	e.Response = resp
+	e.Err = err
+	e.Body = body
+}
+
+func (es *execState) planCancelled() bool {
+	err := es.plan.Context().Err()
+	return err != nil
+}
+
+func (es *execState) planTimeout() bool {
+	err := es.plan.Context().Err()
+	return err == context.DeadlineExceeded
+}
+
+func (es *execState) cleanupWave() {
+	// Recover from any panic that may have been triggered by a misbehaving
+	// event handler or client policy.
+	r := recover()
+	es.baseAttempt += len(es.waveAttempts)
+	// Unblock and cancel all outstanding request attempts within the wave.
+	for _, as := range es.waveAttempts {
+		as.cancel(false)
+		switch as.checkpoint {
+		case createdRequest, readBodyHandle:
+			es.exec.Racing--
+		case sentRequestHandle:
+			as.ready <- struct{}{}
+		}
+	}
+	// Drain the swamp. By which I mean wait until all request attempts in the
+	// wave have completed.
+	for es.exec.Racing > 0 {
+		attempt := <-es.signal
+		switch attempt.checkpoint {
+		case sentRequest:
+			if attempt.err == nil {
+				attempt.ready <- struct{}{}
+				continue
+			}
+			fallthrough
+		case readBody:
+			es.exec.Racing--
+		default:
+			panic("httpx: bad attempt checkpoint")
+		}
+	}
+	// Close any open channels.
+	for _, as := range es.waveAttempts {
+		close(as.ready)
+	}
+	// Re-panic, if we started with a panic.
+	if r != nil {
+		panic(r)
+	}
+}
+
+func (es *execState) cleanupCheckpoint(attempt *attemptState) {
+	switch attempt.checkpoint {
+	case sentRequest:
+	case readBody:
+	default:
+	}
+}
+
+func (es *execState) cleanup() {
+	close(es.signal)
+
+	if !es.ding && !es.timer.Stop() {
+		<-es.timer.C
+	}
+}
+
+func (es *execState) newAttemptState(index int) *attemptState {
+	d := es.timeoutPolicy.Timeout(es.exec)
+	ctx, cancel := context.WithTimeout(es.plan.Context(), d)
+	return &attemptState{
+		index:      index,
+		checkpoint: createdRequest,
+		ctx:        ctx,
+		cancelFunc: cancel,
+		es:         es,
+		req:        es.plan.ToRequest(ctx),
+		ready:      make(chan struct{}),
+	}
+}
+
+type attemptCheckpoint int
+
+const (
+	createdRequest attemptCheckpoint = iota
+	sendingRequest
+	sentRequest
+	sentRequestHandle
+	readingBody
+	readBody
+	readBodyHandle
+	done
+)
+
+type attemptState struct {
+	index      int
+	checkpoint attemptCheckpoint
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+	redundant  bool
+	es         *execState
+	ready      chan struct{}
+	req        *http.Request
+	resp       *http.Response
+	err        error
+	body       []byte
+}
+
+func (as *attemptState) sendAndReadBody() {
+	// Send the request
 	var err error
-	e.Body, err = ioutil.ReadAll(e.Response.Body)
+	as.resp, err = as.es.httpDoer.Do(as.req)
 	if err != nil {
-		e.Err = urlErrorWrap(p, err)
+		as.err = urlErrorWrap(as.es.plan, as.maybeRedundant(err))
+	}
+	as.checkpoint = sentRequest
+	as.es.signal <- as
+
+	// Read the body.
+	if err == nil {
+		<-as.ready
+		defer func() { _ = as.resp.Body.Close() }()
+		as.body, err = ioutil.ReadAll(as.resp.Body)
+		if err != nil {
+			as.err = urlErrorWrap(as.es.plan, as.maybeRedundant(err))
+		}
+		as.checkpoint = readBody
+		as.es.signal <- as
+	}
+}
+
+func (as *attemptState) maybeRedundant(err error) error {
+	if err == context.Canceled && as.redundant {
+		return racing.Redundant
+	}
+
+	return err
+}
+
+func (as *attemptState) cancel(redundant bool) {
+	cancel := as.cancelFunc
+	if cancel != nil {
+		as.redundant = redundant
+		as.cancelFunc = nil
+		cancel()
 	}
 }
 
@@ -292,6 +531,44 @@ func (c *Client) CloseIdleConnections() {
 	}
 }
 
+func (c *Client) newExecState(p *request.Plan) execState {
+	timeoutPolicy := c.TimeoutPolicy
+	if timeoutPolicy == nil {
+		timeoutPolicy = timeout.DefaultPolicy
+	}
+
+	retryPolicy := c.RetryPolicy
+	if retryPolicy == nil {
+		retryPolicy = retry.DefaultPolicy
+	}
+
+	racingPolicy := c.RacingPolicy
+	if racingPolicy == nil {
+		racingPolicy = racing.Disabled
+	}
+
+	handlers := c.Handlers
+	if handlers == nil {
+		handlers = &emptyHandlers
+	}
+
+	return execState{
+		plan: p,
+		exec: &request.Execution{
+			Plan: p,
+		},
+
+		httpDoer:      c.doer(),
+		timeoutPolicy: timeoutPolicy,
+		retryPolicy:   retryPolicy,
+		racingPolicy:  racingPolicy,
+		handlers:      handlers,
+
+		signal: make(chan *attemptState),
+		timer:  time.NewTimer(1<<63 - 1),
+	}
+}
+
 func (c *Client) doer() HTTPDoer {
 	if c.HTTPDoer == nil {
 		return http.DefaultClient
@@ -300,9 +577,9 @@ func (c *Client) doer() HTTPDoer {
 	return c.HTTPDoer
 }
 
-func urlErrorWrap(p *request.Plan, err error) error {
-	if _, ok := err.(*url.Error); ok {
-		return err
+func urlErrorWrap(p *request.Plan, err error) *url.Error {
+	if urlError, ok := err.(*url.Error); ok {
+		return urlError
 	}
 
 	return &url.Error{

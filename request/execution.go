@@ -97,6 +97,11 @@ type Execution struct {
 	// is nil.
 	Body []byte
 
+	// TODO: Document me.
+	Wave int
+	// TODO: Document me.
+	Racing int
+
 	// Data contains arbitrary user data. The httpx library will not
 	// touch this field, and it will typically be nil unless used by
 	// event handler writers.

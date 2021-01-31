@@ -619,44 +619,24 @@ func testClientPanicEnsureCancelCalled(t *testing.T) {
 }
 
 func testClientPanicEnsureBodyClosed(t *testing.T) {
-	testCases := []struct {
-		name  string
-		setup func(*HandlerGroup, *mockReadCloser)
-	}{
-		{
-			name: "in BeforeReadBody handler",
-			setup: func(handlers *HandlerGroup, _ *mockReadCloser) {
-				handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.Anything).Panic("bah").Once()
-			},
-		},
-		{
-			name: "while reading body",
-			setup: func(_ *HandlerGroup, readCloser *mockReadCloser) {
-				readCloser.On("Read", mock.Anything).Panic("ahhhhh").Once()
-			},
-		},
+	doer := newMockHTTPDoer(t)
+	handlers := &HandlerGroup{}
+	cl := &Client{
+		HTTPDoer: doer,
+		Handlers: handlers,
 	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			doer := newMockHTTPDoer(t)
-			handlers := &HandlerGroup{}
-			cl := &Client{
-				HTTPDoer: doer,
-				Handlers: handlers,
-			}
-			readCloser := newMockReadCloser(t)
-			resp := &http.Response{
-				Body: readCloser,
-			}
-			doer.On("Do", mock.Anything).Return(resp, nil).Once()
-			readCloser.On("Close").Return(nil).Once()
-			testCase.setup(handlers, readCloser)
+	readCloser := newMockReadCloser(t)
+	resp := &http.Response{
+		Body: readCloser,
+	}
+	doer.On("Do", mock.Anything).Return(resp, nil).Once()
+	readCloser.On("Read", mock.Anything).Return(0, context.Canceled)
+	readCloser.On("Close").Return(nil).Once()
+	handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.Anything).Panic("bah").Once()
 
-			require.Panics(t, func() { cl.Get("test") })
-			doer.AssertExpectations(t)
-			readCloser.AssertExpectations(t)
-		})
-	}
+	require.Panics(t, func() { cl.Get("test") })
+	doer.AssertExpectations(t)
+	readCloser.AssertExpectations(t)
 }
 
 func testClientPlanCancel(t *testing.T) {
@@ -678,7 +658,9 @@ func testClientPlanCancel(t *testing.T) {
 		doer.AssertExpectations(t)
 		require.NotNil(t, e)
 		assert.Error(t, err)
-		assert.Same(t, context.Canceled, err)
+		var urlError *url.Error
+		require.ErrorAs(t, err, &urlError)
+		assert.Same(t, context.Canceled, urlError.Err)
 		assert.Same(t, err, e.Err)
 		assert.Same(t, p, e.Plan)
 	})
@@ -710,7 +692,9 @@ func testClientPlanCancel(t *testing.T) {
 		handlers.assertExpectations(t)
 		require.NotNil(t, e)
 		assert.Error(t, err)
-		assert.Same(t, context.Canceled, err)
+		var urlError *url.Error
+		require.ErrorAs(t, err, &urlError)
+		assert.Same(t, context.Canceled, urlError.Err)
 		assert.Same(t, err, e.Err)
 		assert.Same(t, p, e.Plan)
 	})
