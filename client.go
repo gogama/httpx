@@ -376,14 +376,6 @@ func (es *execState) cleanupWave() {
 	}
 }
 
-func (es *execState) cleanupCheckpoint(attempt *attemptState) {
-	switch attempt.checkpoint {
-	case sentRequest:
-	case readBody:
-	default:
-	}
-}
-
 func (es *execState) cleanup() {
 	close(es.signal)
 
