@@ -55,11 +55,17 @@ func TestNever(t *testing.T) {
 
 func TestNewPolicy(t *testing.T) {
 	p := &testPolicy{}
-	P := NewPolicy(p, p)
-	assert.True(t, P.Decide(&request.Execution{}))
-	assert.Equal(t, 1, p.d)
-	assert.Equal(t, time.Second, p.Wait(&request.Execution{}))
-	assert.Equal(t, 1, p.w)
+	t.Run("Bad Args", func(t *testing.T) {
+		assert.PanicsWithValue(t, "httpx/retry: nil decider", func() { NewPolicy(nil, p) })
+		assert.PanicsWithValue(t, "httpx/retry: nil waiter", func() { NewPolicy(p, nil) })
+	})
+	t.Run("Normal", func(t *testing.T) {
+		P := NewPolicy(p, p)
+		assert.True(t, P.Decide(&request.Execution{}))
+		assert.Equal(t, 1, p.d)
+		assert.Equal(t, time.Second, p.Wait(&request.Execution{}))
+		assert.Equal(t, 1, p.w)
+	})
 }
 
 type testPolicy struct {

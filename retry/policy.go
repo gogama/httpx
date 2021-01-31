@@ -45,6 +45,12 @@ type policy struct {
 
 // NewPolicy composes a Decider and a Waiter into a retry Policy.
 func NewPolicy(d Decider, w Waiter) Policy {
+	if d == nil {
+		panic("httpx/retry: nil decider")
+	}
+	if w == nil {
+		panic("httpx/retry: nil waiter")
+	}
 	return policy{decider: d, waiter: w}
 }
 
