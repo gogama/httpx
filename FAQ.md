@@ -19,18 +19,18 @@ go get -u github.com/gogama/httpx
 
 Alternatives include:
 
+- [heimdall](https://github.com/gojek/heimdall) - Adds a retrying client with
+  hystrix-style circuit breakers and a few event hooks for basic plugin support.
 - [rehttp](https://github.com/PuerkitoBio/rehttp) - Adds a retrying `http.RoundTripper`
   for `http.Client`, supports configurable retry policies.
 - [httpretry](https://github.com/ybbus/httpretry) - Adds a retrying `http.RoundTripper`
   for `http.Client`, supports configurable retry policies.
+- [go-http-retry](https://github.com/tescherm/go-http-retry) - Adds a retrying
+  `http.RoundTripper` for `http.Client`, supports configurable retry policies.
 - [go-retryablehttp](https://github.com/hashicorp/go-retryablehttp) - Adds a retrying
   client, `retryablehttp.Client` with configurable retry policies, a few event hooks,
   and a way to transmorgrify the client into an `http.RoundTripper` so it can be
   wrapped in an `http.Client`.
-
-TODO:
-- https://github.com/tescherm/go-http-retry
-- https://nicedoc.io/gojek/heimdall
 
 #### 2. Why use httpx over the alternatives?
 
