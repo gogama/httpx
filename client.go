@@ -329,11 +329,6 @@ func (es *execState) planCancelled() bool {
 	return err != nil
 }
 
-func (es *execState) planTimeout() bool {
-	err := es.plan.Context().Err()
-	return err == context.DeadlineExceeded
-}
-
 func (es *execState) cleanupWave() {
 	// Recover from any panic that may have been triggered by a misbehaving
 	// event handler or client policy.
