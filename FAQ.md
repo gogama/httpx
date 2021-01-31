@@ -76,12 +76,20 @@ like the Go standard HTTP client does. (Of course httpx could consume a function
 that returns an `io.Reader`, but this would push more complexity onto the
 programmer when the goal is to simplify.)
 
-For *responses*, the issue is that if the response body is important, then you
-*have* to be able to read the response *reliably*. Since a transient error like
-a client-side timeout or connection reset can happen after the server sends back
-the response headers, but before the response body is fully received, the only way
-to determine if the response was completed successfully is to read the entire
-body without error.
+For *responses*, the primary issue is that if the response body is important,
+then you *have* to be able to read the response *reliably*. Since a transient
+error like  a client-side timeout or connection reset can happen after the
+server sends back  the response headers, but before the response body is fully
+received, the only way  to determine if the response was completed successfully
+is to read the entire body without error.
+
+A secondary issue for responses is that some web services include information
+about the retryability of the request in the response body itself. For example,
+Esri's ArcGIS REST API returns errors to the client by sending back an
+HTTP 200/OK response header followed by a response body containing a JSON object
+that indicates the "true" HTTP status code, for example 503. If you want to
+retry one of these errors, you need to read and parse the response body.
+Response body buffering makes this possible.
 
 Thus, in order to be able to retry request attempts where the response body was
 not fully received, httpx reads and buffers the entire response body. Apart
