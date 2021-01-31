@@ -1,8 +1,6 @@
 language: go
 os:
   - linux
-  - osx
-  - windows
 go:
   - 1.13.x
   - 1.14.x
@@ -17,3 +15,5 @@ jobs:
   include:
     - {os: linux, go: master, env: GO111MODULE=off}
     - {os: linux, go: master, env: GO111MODULE=on}
+    - {os: windows, go: master, env: GO111MODULE=on}
+    - {os: osx, go: master, env: GO111MODULE=on}
