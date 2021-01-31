@@ -232,6 +232,10 @@ Alternatives include:
   and a way to transmorgrify the client into an `http.RoundTripper` so it can be
   wrapped in an `http.Client`.
 
+TODO:
+- https://github.com/tescherm/go-http-retry
+- https://nicedoc.io/gojek/heimdall
+
 ## Why use httpx over the alternatives?
 
 The alternative libraries tend to be missing three features that are fundamental
