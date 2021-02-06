@@ -63,7 +63,7 @@ func TestNewPolicy(t *testing.T) {
 		P := NewPolicy(p, p)
 		assert.True(t, P.Decide(&request.Execution{}))
 		assert.Equal(t, 1, p.d)
-		assert.Equal(t, time.Second, p.Wait(&request.Execution{}))
+		assert.Equal(t, time.Second, P.Wait(&request.Execution{}))
 		assert.Equal(t, 1, p.w)
 	})
 }

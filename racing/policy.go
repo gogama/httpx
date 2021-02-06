@@ -10,36 +10,49 @@ import (
 	"github.com/gogama/httpx/request"
 )
 
-// TODO: document me
+// Disabled is a policy that disables racing, causing the robust HTTP
+// client to send all requests serially, and never in parallel.
 var Disabled = disabled{}
 
-// TODO: document me
+// A Policy controls if and how concurrent requests may be raced against
+// each other. In particular, after every request attempt is started, a
+// Policy schedules the start of the next attempt in the wave and, when
+// the scheduled time arrives, confirms whether the attempt should
+// start.
+//
+// Implementations of Policy must be safe for concurrent use by multiple
+// goroutines.
+//
+// A Policy is composed of the Scheduler and Starter interfaces. Use
+// NewPolicy to construct a Policy given existing Scheduler and Starter
+// implementations.
 type Policy interface {
 	Scheduler
-	Confirmer
+	Starter
+}
+
+// NewPolicy composes a Scheduler and a Starter into a racing Policy.
+func NewPolicy(sc Scheduler, st Starter) Policy {
+	if sc == nil {
+		panic("httpx/racing: nil scheduler")
+	}
+	if st == nil {
+		panic("httpx/racing: nil starter")
+	}
+	return policy{scheduler: sc, starter: st}
 }
 
 type policy struct {
 	scheduler Scheduler
-	confirmer Confirmer
-}
-
-func NewPolicy(s Scheduler, c Confirmer) Policy {
-	if s == nil {
-		panic("httpx/racing: nil scheduler")
-	}
-	if c == nil {
-		panic("httpx/racing: nil confirmer")
-	}
-	return policy{scheduler: s, confirmer: c}
+	starter   Starter
 }
 
 func (p policy) Schedule(e *request.Execution) time.Duration {
 	return p.scheduler.Schedule(e)
 }
 
-func (p policy) Confirm(e *request.Execution) bool {
-	return p.confirmer.Confirm(e)
+func (p policy) Start(e *request.Execution) bool {
+	return p.starter.Start(e)
 }
 
 type disabled struct{}
@@ -48,6 +61,6 @@ func (_ disabled) Schedule(_ *request.Execution) time.Duration {
 	return 0
 }
 
-func (_ disabled) Confirm(_ *request.Execution) bool {
+func (_ disabled) Start(_ *request.Execution) bool {
 	return false
 }

@@ -63,6 +63,10 @@ var emptyHandlers = HandlerGroup{}
 // • Client sets individual request attempt timeouts using a
 // customizable timeout policy;
 //
+// • Client may race multiple concurrent HTTP request attempts against
+// one another to improve performance using a customizable racing policy
+// (see package racing for more detail);
+//
 // • Client invokes user-provided handler functions at designated plug-in
 // points within the attempt/retry loop, allowing new features to be
 // mixed in from outside libraries; and
@@ -206,6 +210,7 @@ func (es *execState) wave() bool {
 	// Flag drain indicates whether to finish all attempts in the wave. It is
 	// set true as soon as any one attempt in the wave finishes, whether the
 	// attempt is retryable or not.
+	//
 	// Flag halt indicates whether to stop the whole execution. It is set true
 	// as soon as a non-retryable attempt is detected.
 	drain, halt := false, false
@@ -216,8 +221,9 @@ func (es *execState) wave() bool {
 		case attempt = <-es.signal: // Event received from a running attempt
 			d, h := es.handleCheckpoint(attempt)
 			drain = drain || d
-			// If the retry decision is already known, cancel all the other
-			// running requests.
+			// If the execution should halt because a negative retry (stop)
+			// decision has been returned from the retry policy, then all other
+			// running attempts are redundant and must be cancelled.
 			if h && !halt {
 				halt = true
 				for i, as := range es.waveAttempts {
@@ -229,7 +235,7 @@ func (es *execState) wave() bool {
 		case <-es.timer.C: // Next concurrent attempt start scheduled
 			es.ding = true
 			es.installAttempt(len(es.waveAttempts), nil, nil, nil, nil)
-			if !drain && es.racingPolicy.Confirm(es.exec) {
+			if !drain && es.racingPolicy.Start(es.exec) {
 				attempt = es.newAttemptState(len(es.waveAttempts) + 1)
 				es.waveAttempts = append(es.waveAttempts, attempt)
 				es.exec.Racing++

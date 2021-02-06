@@ -97,10 +97,26 @@ type Execution struct {
 	// is nil.
 	Body []byte
 
-	// TODO: Document me.
-	Wave int
-	// TODO: Document me.
+	// Racing is the number of other concurrent request attempts which
+	// are racing against the current request attempt. The value starts
+	// at zero, increases by one whenever a new concurrent attempt is
+	// added to the race, and decreases by one whenever a concurrent
+	// attempt finishes.
+	//
+	// Unless a racing policy has been installed on the robust HTTP
+	// client, the value will always be zero.
 	Racing int
+
+	// Wave is zero-based number of the current wave of request
+	// attempts.
+	//
+	// If a racing policy is not installed on the robust HTTP client,
+	// then each wave only contains a single attempt, and Wave is always
+	// equal to Attempt. If racing is enabled, however, then a new wave
+	// is started only when all parallel attempts racing in the previous
+	// wave have finished or been cancelled, so Wave is less than or
+	// equal to Attempt.
+	Wave int
 
 	// Data contains arbitrary user data. The httpx library will not
 	// touch this field, and it will typically be nil unless used by

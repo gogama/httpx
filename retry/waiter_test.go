@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/gogama/httpx/request"
 
 	"github.com/stretchr/testify/assert"
@@ -153,6 +155,6 @@ func TestNewExpWaiter(t *testing.T) {
 
 func newJitterExpWaiter(t *testing.T, base, max time.Duration, jitter interface{}, message string) *jitterExpWaiter {
 	j := NewExpWaiter(base, max, jitter)
-	assert.IsType(t, &jitterExpWaiter{}, j, message)
+	require.IsType(t, &jitterExpWaiter{}, j, message)
 	return j.(*jitterExpWaiter)
 }
