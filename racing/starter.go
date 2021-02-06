@@ -70,7 +70,7 @@ func (st *throttleStarter) Start(_ *request.Execution) bool {
 	defer st.lock.Unlock()
 	now := time.Now()
 	start := true
-	for i, _ := range st.limits {
+	for i := range st.limits {
 		start = start && st.limits[i].accept(&now)
 	}
 	return start

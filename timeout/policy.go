@@ -28,10 +28,10 @@ type Policy interface {
 
 // DefaultPolicy is the default timeout policy. It sets a fixed timeout
 // of 5 seconds on each attempt.
-var DefaultPolicy Policy = Fixed(5 * time.Second)
+var DefaultPolicy = Fixed(5 * time.Second)
 
 // Infinite is a built-in timeout policy which never times out.
-var Infinite Policy = Fixed(1<<63 - 1)
+var Infinite = Fixed(1<<63 - 1)
 
 // Fixed constructs a timeout policy that uses the same value to set
 // every attempt timeout. The return value is a timeout policy that

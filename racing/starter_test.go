@@ -95,12 +95,12 @@ func TestLimitQueue(t *testing.T) {
 						}
 						assert.False(t, q.accept(&x))
 						assert.Equal(t, i, q.len)
-						// Advance time to the middle of the queue'sc interval.
+						// Advance time to the middle of the queue's interval.
 						// None of the samples are expired, so adding must fail.
 						x = x.Add(time.Second)
 						assert.False(t, q.accept(&x))
 						assert.Equal(t, i, q.len)
-						// Advance time to the end of the queue'sc interval. Now
+						// Advance time to the end of the queue's interval. Now
 						// all the samples in the queue are expired, so adding
 						// must succeed.
 						x = x.Add(time.Second)

@@ -62,6 +62,6 @@ for a scheduler and a starter. Use NewStaticScheduler to create a
 scheduler based on a static offset schedule. Use NewThrottleStarter to
 create a starter which can throttle racing if too many parallel request
 attempts are being scheduled. Use NewPolicy to compose any scheduler and
-any starter into a racnig policy.
+any starter into a racing policy.
 */
 package racing

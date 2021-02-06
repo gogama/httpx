@@ -609,7 +609,7 @@ func testClientPanicEnsureCancelCalled(t *testing.T) {
 				return true
 			})).Panic("omg omg").Once()
 
-			require.Panics(t, func() { cl.Get("test") })
+			require.Panics(t, func() { _, _ = cl.Get("test") })
 			require.NotNil(t, e)
 			assert.Equal(t, 0, e.Attempt)
 			require.NotNil(t, e.Request)
@@ -634,7 +634,7 @@ func testClientPanicEnsureBodyClosed(t *testing.T) {
 	readCloser.On("Close").Return(nil).Once()
 	handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.Anything).Panic("bah").Once()
 
-	require.Panics(t, func() { cl.Get("test") })
+	require.Panics(t, func() { _, _ = cl.Get("test") })
 	doer.AssertExpectations(t)
 	readCloser.AssertExpectations(t)
 }
