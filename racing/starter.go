@@ -109,7 +109,7 @@ func (q *limitQueue) accept(t *time.Time) bool {
 			}
 		}
 	}
-	// If there'sc room for the sample, add it in.
+	// If there's room for the sample, add it in.
 	if q.len < len(q.a) {
 		i := (q.start + q.len) % len(q.a)
 		q.a[i] = *t
