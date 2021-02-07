@@ -91,7 +91,7 @@ func testClientHappyPath(t *testing.T) {
 		},
 	}
 
-	// run happy path test cases.
+	// Run happy path test cases.
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			mockDoer := newMockHTTPDoer(t)
@@ -134,7 +134,8 @@ func testClientHappyPath(t *testing.T) {
 			})).Once()
 			cl.Handlers.mock(AfterPlanTimeout) // Add so we can assert it was never called.
 			cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Request != nil && e.Response == resp && e.Err == nil && e.Attempt == 0 && e.Ended()
+				return e.Request != nil && e.Response == resp && e.Err == nil && e.Attempt == 0 &&
+					e.Racing == 0 && e.Wave == 0 && e.Ended()
 			})).Once()
 
 			e, err := testCase.action(cl)
@@ -153,6 +154,9 @@ func testClientHappyPath(t *testing.T) {
 			require.NotNil(t, e.Request)
 			assert.Equal(t, 200, e.StatusCode())
 			assert.Equal(t, []byte("foo"), e.Body)
+			assert.Equal(t, 0, e.Attempt)
+			assert.Equal(t, 0, e.Racing)
+			assert.Equal(t, 0, e.Wave)
 
 			if testCase.extraChecks != nil {
 				testCase.extraChecks(t, e)
@@ -181,6 +185,8 @@ func testClientZeroValue(t *testing.T) {
 				assert.Equal(t, 200, e.StatusCode())
 				assert.Empty(t, e.Body)
 				assert.Equal(t, 0, e.Attempt)
+				assert.Equal(t, 0, e.Racing)
+				assert.Equal(t, 0, e.Wave)
 			},
 		},
 		{
@@ -202,6 +208,8 @@ func testClientZeroValue(t *testing.T) {
 				assert.Equal(t, 404, e.StatusCode())
 				assert.Equal(t, []byte("the thingy was not in the place"), e.Body)
 				assert.Equal(t, 0, e.Attempt)
+				assert.Equal(t, 0, e.Racing)
+				assert.Equal(t, 0, e.Wave)
 			},
 		},
 		{
@@ -224,6 +232,8 @@ func testClientZeroValue(t *testing.T) {
 				assert.Equal(t, []byte("ain't not service in these parts"), e.Body)
 				assert.Equal(t, retry.DefaultTimes, e.Attempt)
 				assert.Equal(t, 0, e.AttemptTimeouts)
+				assert.Equal(t, 0, e.Racing)
+				assert.Equal(t, retry.DefaultTimes, e.Wave)
 			},
 		},
 	}
@@ -287,6 +297,8 @@ func testClientAttemptTimeout(t *testing.T) {
 					assert.Nil(t, e.Response)
 					assert.Equal(t, e.Attempt, 0)
 					assert.Equal(t, e.AttemptTimeouts, 1)
+					assert.Equal(t, 0, e.Racing)
+					assert.Equal(t, 0, e.Wave)
 				})
 			}
 		})
@@ -342,6 +354,8 @@ func testClientBodyError(t *testing.T) {
 				assert.NotNil(t, e.Body) // ioutil.ReadAll returns non-nil []byte plus error
 				assert.Equal(t, 0, e.Attempt)
 				assert.Equal(t, 1, e.AttemptTimeouts)
+				assert.Equal(t, 0, e.Racing)
+				assert.Equal(t, 0, e.Wave)
 				assert.Equal(t, 200, e.StatusCode())
 			})
 		}
@@ -435,6 +449,8 @@ func testClientRetryPlanTimeout(t *testing.T) {
 	assert.NotNil(t, e.Body)
 	assert.Equal(t, 0, e.Attempt)
 	assert.Equal(t, 0, e.AttemptTimeouts)
+	assert.Equal(t, 0, e.Racing)
+	assert.Equal(t, 0, e.Wave)
 	assert.True(t, e.Timeout())
 	assert.Error(t, err)
 	assert.Error(t, e.Err)
@@ -573,6 +589,8 @@ func testClientRetryVarious(t *testing.T) {
 			require.NotNil(t, e.Request)
 			assert.Equal(t, i, e.Attempt)
 			assert.Equal(t, 1, e.AttemptTimeouts)
+			assert.Equal(t, 0, e.Racing)
+			assert.Equal(t, i, e.Wave)
 			assert.True(t, e.Ended())
 			assert.GreaterOrEqual(t, e.Duration(), time.Duration(0))
 			assert.False(t, e.Start.Before(before))
@@ -612,6 +630,8 @@ func testClientPanicEnsureCancelCalled(t *testing.T) {
 			require.Panics(t, func() { _, _ = cl.Get("test") })
 			require.NotNil(t, e)
 			assert.Equal(t, 0, e.Attempt)
+			assert.Equal(t, 0, e.Racing)
+			assert.Equal(t, 0, e.Wave)
 			require.NotNil(t, e.Request)
 			assert.Same(t, context.Canceled, e.Request.Context().Err())
 		})
