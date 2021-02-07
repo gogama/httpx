@@ -50,6 +50,7 @@ func TestURLErrorOp(t *testing.T) {
 }
 
 func testClientHappyPath(t *testing.T) {
+	t.Parallel()
 	// Declare happy path test cases. Each test case invokes one of the
 	// exported methods on Client: Get, Head, Post, and PostForm.
 	testCases := []struct {
@@ -166,6 +167,8 @@ func testClientHappyPath(t *testing.T) {
 }
 
 func testClientZeroValue(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name        string
 		inst        serverInstruction
@@ -240,6 +243,8 @@ func testClientZeroValue(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			cl := &Client{} // Must use zero value!
 
 			p := testCase.inst.toPlan(context.Background(), "POST", httpServer)
@@ -252,6 +257,8 @@ func testClientZeroValue(t *testing.T) {
 }
 
 func testClientAttemptTimeout(t *testing.T) {
+	t.Parallel()
+
 	testCases := []string{
 		"from attempt deadline",
 		"from plan deadline",
@@ -260,6 +267,8 @@ func testClientAttemptTimeout(t *testing.T) {
 	for i, testCase := range testCases {
 		isPlanTimeout := i == 1
 		t.Run(testCase, func(t *testing.T) {
+			t.Parallel()
+
 			for _, server := range servers {
 				t.Run(serverName(server), func(t *testing.T) {
 					cl := &Client{
@@ -306,9 +315,13 @@ func testClientAttemptTimeout(t *testing.T) {
 }
 
 func testClientBodyError(t *testing.T) {
+	t.Parallel()
+
 	t.Run("timeout", func(t *testing.T) {
 		for _, server := range servers {
 			t.Run(serverName(server), func(t *testing.T) {
+				t.Parallel()
+
 				cl := &Client{
 					HTTPDoer:      server.Client(),
 					TimeoutPolicy: timeout.Fixed(50 * time.Millisecond),
@@ -400,11 +413,14 @@ func testClientBodyError(t *testing.T) {
 }
 
 func testClientRetry(t *testing.T) {
+	t.Parallel()
 	t.Run("plan timeout during wait", testClientRetryPlanTimeout)
 	t.Run("various", testClientRetryVarious)
 }
 
 func testClientRetryPlanTimeout(t *testing.T) {
+	t.Parallel()
+
 	// Force a retry, then make the retry wait so long the plan times out!
 	mockDoer := newMockHTTPDoer(t)
 	mockRetryPolicy := newMockRetryPolicy(t)
@@ -463,6 +479,8 @@ func testClientRetryPlanTimeout(t *testing.T) {
 }
 
 func testClientRetryVarious(t *testing.T) {
+	t.Parallel()
+
 	iterations := []struct {
 		name         string
 		doResp       *http.Response
@@ -602,6 +620,7 @@ func testClientRetryVarious(t *testing.T) {
 }
 
 func testClientPanic(t *testing.T) {
+	t.Parallel()
 	t.Run("ensure cancel called", testClientPanicEnsureCancelCalled)
 	t.Run("ensure Body closed", testClientPanicEnsureBodyClosed)
 }
@@ -721,6 +740,7 @@ func testClientPlanCancel(t *testing.T) {
 }
 
 func testClientCloseIdleConnections(t *testing.T) {
+	t.Parallel()
 	t.Run("with HTTPDoer support", func(t *testing.T) {
 		mockDoer := newMockHTTPDoer(t)
 		cl := Client{HTTPDoer: mockDoer}
