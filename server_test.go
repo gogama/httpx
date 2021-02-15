@@ -38,6 +38,7 @@ func TestMain(m *testing.M) {
 	defer http2Server.Close()
 	waitForServerStart(httpServer)
 	waitForServerStart(httpsServer)
+	waitForServerStart(http2Server)
 	os.Exit(m.Run())
 }
 
