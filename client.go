@@ -250,7 +250,7 @@ func (es *execState) wave() bool {
 	for i, as := range es.waveAttempts {
 		if !as.redundant {
 			es.installAttempt(i, as.req, as.resp, as.err, as.body)
-			return halt
+			return !halt
 		}
 	}
 
@@ -258,7 +258,7 @@ func (es *execState) wave() bool {
 	panic("httpx: no usable attempt")
 }
 
-func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, stop bool) {
+func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, halt bool) {
 	es.installAttempt(attempt.index, attempt.req, attempt.resp, attempt.err, attempt.body)
 	switch attempt.checkpoint {
 	case createdRequest:
@@ -289,12 +289,7 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, stop b
 		attempt.body = es.exec.Body
 		attempt.checkpoint = done
 		drain = true
-		stop = es.planCancelled() || es.retryPolicy.Decide(es.exec)
-		// FIXME: Consistently use 'stop' or 'halt'. Also logically this doesn't
-		//        make sense since wave() returns 'halt', but at that point in
-		//        the program 'halt' seems to indicate continuance. Also a
-		//        Decide result of true should mean continue, not halt, but a
-		//        planCancelled() result of true definitely means halt.
+		halt = es.planCancelled() || !es.retryPolicy.Decide(es.exec)
 		return
 	default:
 		panic("httpx: bad attempt checkpoint")

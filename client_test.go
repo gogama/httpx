@@ -288,6 +288,8 @@ func testClientAttemptTimeout(t *testing.T) {
 						//        fail when asserting mock expectations because the
 						//        AfterPlanTimeout handler didn't get called. Need to
 						//        make this test more reliable...
+						// UPDATE: Confirmed to still be happening sporadically after
+						//         fixing the inverted halt logic bug on 2/21/2021.
 					}
 					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
 					cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
@@ -356,6 +358,10 @@ func testClientBodyError(t *testing.T) {
 				assert.Same(t, err, e.Err)
 				assert.Equal(t, transient.Timeout, transient.Categorize(err))
 				require.IsType(t, &url.Error{}, err)
+				// FIXME: Even after the halt logic fix on 2/21/2021, I have seen
+				//        sporadic cases where the timeout isn't detected/the
+				//        execution doesn't end in error, and the above five lines
+				//        of assert/require fail.
 				urlError := err.(*url.Error)
 				assert.True(t, urlError.Timeout())
 				assert.Equal(t, "Post", urlError.Op)
@@ -397,6 +403,8 @@ func testClientBodyError(t *testing.T) {
 		mockReadCloser.On("Close").Return(closeErr).Once()
 		// FIXME: I have occasionally seen a failure in this case because
 		//        the "Close" call wasn't called on the mockReadCloser.
+		// UPDATE: Confirmed to still be happening sporadically after
+		//         fixing the inverted halt logic bug on 2/21/2021.
 
 		e, err := cl.Get("test")
 
