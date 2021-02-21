@@ -51,11 +51,12 @@ The main concepts involved in racing are:
   for a request attempt in wave `j` occur before any events for an
   attempt in wave `j+1`.
 
-• When a request attempt completes with a non-retryable result, every
-  other concurrent attempt in the wave is cancelled as redundant. The
-  AfterAttempt event handler is fired for every request that is
-  cancelled as redundant, and the execution error during the event is
-  set to Redundant.
+• As soon as one request attempt ends, every other concurrent request
+  attempt in the wave is cancelled as redundant. The AfterAttempt event
+  handler is fired for every request that is cancelled as redundant, and
+  the execution error during the event is set to Redundant. If the ended
+  request is retryable, a new wave is started. Otherwise, the ended
+  request's response becomes the result of the execution.
 
 Besides the Disabled policy, this package provides built-in constructors
 for a scheduler and a starter. Use NewStaticScheduler to create a

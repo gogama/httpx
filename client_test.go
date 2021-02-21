@@ -37,7 +37,9 @@ func TestClient(t *testing.T) {
 	t.Run("retry", testClientRetry)
 	t.Run("panic", testClientPanic)
 	t.Run("plan cancel", testClientPlanCancel)
+	t.Run("plan replace", testClientPlanReplace)
 	t.Run("close idle connections", testClientCloseIdleConnections)
+	//t.Run("racing", testClientRacing) FIXME
 }
 
 func TestURLErrorOp(t *testing.T) {
@@ -282,6 +284,10 @@ func testClientAttemptTimeout(t *testing.T) {
 					cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
 					if isPlanTimeout {
 						cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
+						// FIXME: Very rarely, I've seen the "from plan deadline" test
+						//        fail when asserting mock expectations because the
+						//        AfterPlanTimeout handler didn't get called. Need to
+						//        make this test more reliable...
 					}
 					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
 					cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
@@ -389,6 +395,8 @@ func testClientBodyError(t *testing.T) {
 		mockReadCloser.On("Read", mock.Anything).Return(0, io.EOF).Once()
 		closeErr := errors.New("a very bad closing error")
 		mockReadCloser.On("Close").Return(closeErr).Once()
+		// FIXME: I have occasionally seen a failure in this case because
+		//        the "Close" call wasn't called on the mockReadCloser.
 
 		e, err := cl.Get("test")
 
@@ -434,6 +442,16 @@ func testClientRetryPlanTimeout(t *testing.T) {
 		Body: ioutil.NopCloser(bytes.NewReader(nil)),
 	}, nil).Once()
 	mockRetryPolicy.On("Decide", mock.Anything).Return(true).Once()
+	// FIXME: I have occasionally seen this test case fail because the Decide
+	//        doesn't get called on the mock. This one is pretty bizarre, because
+	//        the Wait is getting called even though the Decide isn't, which
+	//        shouldn't be possible. This is related to the halt/stop confusion
+	//        and the FIXME in handleCheckpoint(). But I think what is happening
+	//        is that every so often, the plan timeout occurs before the retry
+	//        evaluation can happen and then the short-circuit logic at the FIXME
+	//        in handleCheckpoint() is triggered. So probably the thing to do is
+	//        first fix the halt/stop bug/confusion, then increase the plan timeout
+	//        in this test above 10 milliseconds.
 	mockRetryPolicy.On("Wait", mock.Anything).Return(time.Hour).Once()
 	cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.MatchedBy(func(e *request.Execution) bool {
 		err, ok := e.Err.(*url.Error)
@@ -739,6 +757,10 @@ func testClientPlanCancel(t *testing.T) {
 	})
 }
 
+func testClientPlanReplace(t *testing.T) {
+	// TODO: Test that when you change the plan, it "sticks".
+}
+
 func testClientCloseIdleConnections(t *testing.T) {
 	t.Parallel()
 	t.Run("with HTTPDoer support", func(t *testing.T) {
@@ -758,6 +780,112 @@ func testClientCloseIdleConnections(t *testing.T) {
 		cl := Client{}
 		cl.CloseIdleConnections()
 	})
+}
+
+func TestClientRacing(t *testing.T) {
+	// What are some test cases we can do?
+	//
+	// 1. Enhance TestClientRacingRetry to look capture event handler
+	//    names. (Using addTraceHandlers.)
+	//
+	// 2. Schedule an extra attempt. Return success, take a long time.
+	//    Ensure long time taker cancelled as redundant AND that all
+	//    the handlers are called as expected.
+	//
+	// 3. Ensure plan cancelled in the middle of the wave loop doesn't
+	//    keep creating new attempts.
+	//
+	// 4. Ensure plan cancelled while multiple concurrent requests running
+	//    is correctly detected.
+	//
+	// 5. Panic in a handler while a bunch of parallel request attempts
+	//    are running and ensure the cleanup code runs.
+}
+
+func TestClientRacingNeverStart(t *testing.T) {
+	// This test schedules one concurrent attempt but never starts it.
+	retryPolicy := newMockRetryPolicy(t)
+	racingPolicy := newMockRacingPolicy(t)
+	cl := Client{
+		RetryPolicy:  retryPolicy,
+		RacingPolicy: racingPolicy,
+		Handlers:     &HandlerGroup{},
+	}
+	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Wave == 0 && e.StatusCode() == 204
+	})).Return(false)
+	racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Attempt == 0 && e.Racing == 1
+	})).Return(time.Nanosecond).Once()
+	racingPolicy.On("Start", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Attempt == 0 && e.Racing == 1
+	})).Return(false).Once()
+
+	inst := serverInstruction{
+		HeaderPause: 50 * time.Millisecond,
+		StatusCode:  204,
+	}
+	p := inst.toPlan(context.Background(), "POST", httpServer)
+
+	e, err := cl.Do(p)
+
+	retryPolicy.AssertExpectations(t)
+	racingPolicy.AssertExpectations(t)
+	cl.Handlers.assertExpectations(t)
+	require.NotNil(t, e)
+	assert.NoError(t, err)
+	assert.NoError(t, e.Err)
+	assert.Equal(t, 204, e.StatusCode())
+	assert.Equal(t, 0, e.Attempt)
+	assert.Equal(t, 0, e.Racing)
+	assert.Equal(t, 0, e.Wave)
+}
+
+func TestClientRacingRetry(t *testing.T) {
+	// This test schedules two additional attempts to race the first one,
+	// and all three requests "fail" (result in a positive retry decision).
+	// On the next wave, no new concurrent attempts are scheduled and the
+	// single second wave request succeeds.
+	doer := newMockHTTPDoer(t)
+	retryPolicy := newMockRetryPolicy(t)
+	racingPolicy := newMockRacingPolicy(t)
+	cl := Client{
+		HTTPDoer:     doer,
+		RetryPolicy:  retryPolicy,
+		RacingPolicy: racingPolicy,
+		Handlers:     &HandlerGroup{},
+	}
+	doer.On("Do", mock.Anything).
+		Run(func(_ mock.Arguments) { time.Sleep(50 * time.Millisecond) }).
+		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry"))}, nil).
+		Times(4)
+	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Wave == 0 && e.Attempt <= 2
+	})).Return(true).Times(3)
+	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Wave == 1 && e.Attempt == 3
+	})).Return(false).Once()
+	retryPolicy.On("Wait", mock.Anything).Return(time.Nanosecond).Once()
+	racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Wave == 0 && e.Attempt <= 1
+	})).Return(5 * time.Microsecond).Twice()
+	racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Wave >= 0 && e.Attempt >= 2
+	})).Return(time.Duration(0)).Twice()
+	racingPolicy.On("Start", mock.MatchedBy(func(e *request.Execution) bool {
+		return e.Wave == 0 && e.Attempt <= 1
+	})).Return(true).Twice()
+
+	e, err := cl.Get("foo")
+
+	doer.AssertExpectations(t)
+	retryPolicy.AssertExpectations(t)
+	racingPolicy.AssertExpectations(t)
+	require.NotNil(t, e)
+	require.NoError(t, err)
+	require.NoError(t, e.Err)
+	assert.Equal(t, 1, e.Wave)
+	assert.Equal(t, 3, e.Attempt)
 }
 
 type mockHTTPDoer struct {
@@ -906,4 +1034,24 @@ func (m *mockReadCloser) Read(p []byte) (n int, err error) {
 func (m *mockReadCloser) Close() error {
 	args := m.Called()
 	return args.Error(0)
+}
+
+type mockRacingPolicy struct {
+	mock.Mock
+}
+
+func newMockRacingPolicy(t *testing.T) *mockRacingPolicy {
+	m := &mockRacingPolicy{}
+	m.Test(t)
+	return m
+}
+
+func (m *mockRacingPolicy) Schedule(e *request.Execution) time.Duration {
+	args := m.Called(e)
+	return args.Get(0).(time.Duration)
+}
+
+func (m *mockRacingPolicy) Start(e *request.Execution) bool {
+	args := m.Called(e)
+	return args.Bool(0)
 }

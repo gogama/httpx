@@ -22,10 +22,23 @@ type Starter interface {
 	// Start returns true if a previously scheduled request attempt
 	// should be added to the race and false if it should be discarded.
 	//
+	// If the scheduled request attempt is discarded, the wave is closed
+	// and no new request attempts will be scheduled until the next
+	// wave.
+	//
 	// The execution contains the plan execution state existing at the
 	// current time, which will usually be changed from the state
 	// existing at the time the attempt was scheduled.
 	Start(*request.Execution) bool
+}
+
+// AlwaysStart is a starter that starts every scheduled request.
+var AlwaysStart = alwaysStarter(0)
+
+type alwaysStarter int
+
+func (st alwaysStarter) Start(_ *request.Execution) bool {
+	return true
 }
 
 // A Limit specifies the maximum number of request attempts allowed per

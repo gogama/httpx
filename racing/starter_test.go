@@ -16,6 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAlwaysStarter(t *testing.T) {
+	assert.True(t, AlwaysStart.Start(&request.Execution{}))
+}
+
 func TestNewThrottleStarter(t *testing.T) {
 	t.Run("Empty", func(t *testing.T) {
 		st := newThrottleStarter(t)

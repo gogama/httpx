@@ -196,7 +196,6 @@ type execState struct {
 }
 
 func (es *execState) wave() bool {
-	es.waveAttempts = es.waveAttempts[:0]
 	defer es.cleanupWave()
 	attempt := es.newAttemptState(0)
 	es.waveAttempts = append(es.waveAttempts, attempt)
@@ -234,9 +233,9 @@ func (es *execState) wave() bool {
 			}
 		case <-es.timer.C: // Next concurrent attempt start scheduled
 			es.ding = true
-			es.installAttempt(len(es.waveAttempts), nil, nil, nil, nil)
+			es.installAttempt(len(es.waveAttempts)-1, nil, nil, nil, nil)
 			if !drain && es.racingPolicy.Start(es.exec) {
-				attempt = es.newAttemptState(len(es.waveAttempts) + 1)
+				attempt = es.newAttemptState(len(es.waveAttempts))
 				es.waveAttempts = append(es.waveAttempts, attempt)
 				es.exec.Racing++
 				es.handleCheckpoint(attempt)
@@ -291,6 +290,11 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, stop b
 		attempt.checkpoint = done
 		drain = true
 		stop = es.planCancelled() || es.retryPolicy.Decide(es.exec)
+		// FIXME: Consistently use 'stop' or 'halt'. Also logically this doesn't
+		//        make sense since wave() returns 'halt', but at that point in
+		//        the program 'halt' seems to indicate continuance. Also a
+		//        Decide result of true should mean continue, not halt, but a
+		//        planCancelled() result of true definitely means halt.
 		return
 	default:
 		panic("httpx: bad attempt checkpoint")
@@ -371,6 +375,9 @@ func (es *execState) cleanupWave() {
 	for _, as := range es.waveAttempts {
 		close(as.ready)
 	}
+	// Re-slice the wave attempts back to empty so we can index from
+	// zero next time.
+	es.waveAttempts = es.waveAttempts[:0]
 	// Re-panic, if we started with a panic.
 	if r != nil {
 		panic(r)
