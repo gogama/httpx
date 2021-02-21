@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 	t.Run("retry", testClientRetry)
 	t.Run("panic", testClientPanic)
 	t.Run("plan cancel", testClientPlanCancel)
-	t.Run("plan replace", testClientPlanReplace)
+	t.Run("plan replace", testClientPlanChange)
 	t.Run("close idle connections", testClientCloseIdleConnections)
 	//t.Run("racing", testClientRacing) FIXME
 }
@@ -765,8 +765,68 @@ func testClientPlanCancel(t *testing.T) {
 	})
 }
 
-func testClientPlanReplace(t *testing.T) {
-	// TODO: Test that when you change the plan, it "sticks".
+func testClientPlanChange(t *testing.T) {
+	t.Parallel()
+
+	p0, err0 := request.NewPlan("GET", "test", nil)
+	require.NotNil(t, p0)
+	require.NoError(t, err0)
+
+	t.Run("to valid plan", func(t *testing.T) {
+		p1, err1 := request.NewPlan("PUT", "test", nil)
+		require.NotNil(t, p1)
+		require.NoError(t, err1)
+
+		doer := newMockHTTPDoer(t)
+		cl := Client{
+			HTTPDoer: doer,
+			Handlers: &HandlerGroup{},
+		}
+		nonRetryableErr := errors.New("not at all retryable")
+		doer.On("Do", mock.Anything).Return(nil, nonRetryableErr)
+		cl.Handlers.mock(BeforeExecutionStart).On("Handle", BeforeExecutionStart, mock.MatchedBy(func(e *request.Execution) bool {
+			return e.Plan == p0
+		})).Run(func(args mock.Arguments) {
+			e := args.Get(1).(*request.Execution)
+			e.Plan = p1
+		}).Once()
+		p1Matcher := mock.MatchedBy(func(e *request.Execution) bool {
+			return e.Plan == p1
+		})
+		cl.Handlers.mock(BeforeAttempt).On("Handle", BeforeAttempt, p1Matcher).Once()
+		cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, p1Matcher).Once()
+		cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, p1Matcher).Once()
+
+		e, err := cl.Do(p0)
+
+		doer.AssertExpectations(t)
+		cl.Handlers.assertExpectations(t)
+		require.NotNil(t, e)
+		assert.Error(t, err)
+		var urlError *url.Error
+		require.ErrorAs(t, err, &urlError)
+		assert.Same(t, nonRetryableErr, urlError.Unwrap())
+	})
+	t.Run("to nil (panic)", func(t *testing.T) {
+		doer := newMockHTTPDoer(t)
+		cl := Client{
+			HTTPDoer: doer,
+			Handlers: &HandlerGroup{},
+		}
+		cl.Handlers.mock(BeforeExecutionStart).On("Handle", BeforeExecutionStart, mock.MatchedBy(func(e *request.Execution) bool {
+			return e.Plan == p0
+		})).Run(func(args mock.Arguments) {
+			e := args.Get(1).(*request.Execution)
+			e.Plan = nil
+		}).Once()
+		cl.Handlers.mock(BeforeAttempt)     // Never called.
+		cl.Handlers.mock(AfterExecutionEnd) // Never called.
+
+		assert.PanicsWithValue(t, "httpx: plan deleted from execution", func() { cl.Do(p0) })
+
+		doer.AssertExpectations(t)
+		cl.Handlers.assertExpectations(t)
+	})
 }
 
 func testClientCloseIdleConnections(t *testing.T) {
@@ -817,7 +877,7 @@ func TestClientRacingNeverStart(t *testing.T) {
 	cl := Client{
 		RetryPolicy:  retryPolicy,
 		RacingPolicy: racingPolicy,
-		Handlers:     &HandlerGroup{},
+		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert only one attempt ever started as per handlers.
 	}
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 0 && e.StatusCode() == 204
@@ -861,7 +921,7 @@ func TestClientRacingRetry(t *testing.T) {
 		HTTPDoer:     doer,
 		RetryPolicy:  retryPolicy,
 		RacingPolicy: racingPolicy,
-		Handlers:     &HandlerGroup{},
+		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert all expected handlers are called.
 	}
 	doer.On("Do", mock.Anything).
 		Run(func(_ mock.Arguments) { time.Sleep(50 * time.Millisecond) }).

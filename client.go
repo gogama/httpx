@@ -164,7 +164,8 @@ func (c *Client) Do(p *request.Plan) (*request.Execution, error) {
 	}
 
 	if es.planCancelled() {
-		err := urlErrorWrap(es.plan, es.plan.Context().Err())
+		p := es.plan()
+		err := urlErrorWrap(p, p.Context().Err())
 		es.exec.Err = err
 		if err.Timeout() {
 			es.handlers.run(AfterPlanTimeout, es.exec)
@@ -177,7 +178,6 @@ func (c *Client) Do(p *request.Plan) (*request.Execution, error) {
 }
 
 type execState struct {
-	plan *request.Plan
 	exec *request.Execution
 
 	// Resolved policy references. These values do not change once set.
@@ -303,7 +303,7 @@ func (es *execState) retry() bool {
 	case <-es.timer.C:
 		es.ding = true
 		return true // Retry wait period expired
-	case <-es.plan.Context().Done():
+	case <-es.planContext().Done():
 		return false // Plan cancelled or timed out
 	}
 }
@@ -329,8 +329,21 @@ func (es *execState) installAttempt(index int, req *http.Request, resp *http.Res
 	e.Body = body
 }
 
+func (es *execState) plan() *request.Plan {
+	p := es.exec.Plan
+	if p == nil {
+		panic("httpx: plan deleted from execution")
+	}
+
+	return p
+}
+
+func (es *execState) planContext() context.Context {
+	return es.plan().Context()
+}
+
 func (es *execState) planCancelled() bool {
-	err := es.plan.Context().Err()
+	err := es.planContext().Err()
 	return err != nil
 }
 
@@ -389,14 +402,14 @@ func (es *execState) cleanup() {
 
 func (es *execState) newAttemptState(index int) *attemptState {
 	d := es.timeoutPolicy.Timeout(es.exec)
-	ctx, cancel := context.WithTimeout(es.plan.Context(), d)
+	ctx, cancel := context.WithTimeout(es.planContext(), d)
 	return &attemptState{
 		index:      index,
 		checkpoint: createdRequest,
 		ctx:        ctx,
 		cancelFunc: cancel,
 		es:         es,
-		req:        es.plan.ToRequest(ctx),
+		req:        es.plan().ToRequest(ctx),
 		ready:      make(chan struct{}),
 	}
 }
@@ -433,7 +446,7 @@ func (as *attemptState) sendAndReadBody() {
 	var err error
 	as.resp, err = as.es.httpDoer.Do(as.req)
 	if err != nil {
-		as.err = urlErrorWrap(as.es.plan, as.maybeRedundant(err))
+		as.err = urlErrorWrap(as.es.plan(), as.maybeRedundant(err))
 	}
 	as.checkpoint = sentRequest
 	as.es.signal <- as
@@ -444,7 +457,7 @@ func (as *attemptState) sendAndReadBody() {
 		defer func() { _ = as.resp.Body.Close() }()
 		as.body, err = ioutil.ReadAll(as.resp.Body)
 		if err != nil {
-			as.err = urlErrorWrap(as.es.plan, as.maybeRedundant(err))
+			as.err = urlErrorWrap(as.es.plan(), as.maybeRedundant(err))
 		}
 		as.checkpoint = readBody
 		as.es.signal <- as
@@ -548,7 +561,6 @@ func (c *Client) newExecState(p *request.Plan) execState {
 	}
 
 	return execState{
-		plan: p,
 		exec: &request.Execution{
 			Plan: p,
 		},
