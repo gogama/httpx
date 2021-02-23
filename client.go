@@ -291,6 +291,9 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, halt b
 		drain = true
 		halt = es.planCancelled() || !es.retryPolicy.Decide(es.exec)
 		return
+	case panicked:
+		es.exec.Racing--
+		panic(attempt.panicVal)
 	default:
 		panic("httpx: bad attempt checkpoint")
 	}
@@ -422,9 +425,11 @@ const (
 	sentRequest
 	sentRequestHandle
 	readingBody
+	readBodyClosing
 	readBody
 	readBodyHandle
 	done
+	panicked
 )
 
 type attemptState struct {
@@ -439,9 +444,12 @@ type attemptState struct {
 	resp       *http.Response
 	err        error
 	body       []byte
+	panicVal   interface{}
 }
 
 func (as *attemptState) sendAndReadBody() {
+	defer as.recoverPanic()
+
 	// Send the request
 	var err error
 	as.resp, err = as.es.httpDoer.Do(as.req)
@@ -454,14 +462,51 @@ func (as *attemptState) sendAndReadBody() {
 	// Read the body.
 	if err == nil {
 		<-as.ready
-		defer func() { _ = as.resp.Body.Close() }()
-		as.body, err = ioutil.ReadAll(as.resp.Body)
+		resp := as.resp
+		if resp == nil {
+			panic("httpx: attempt response was nilled")
+		}
+		body := resp.Body
+		if body == nil {
+			panic("httpx: attempt response body was nilled")
+		}
+		as.body, err = ioutil.ReadAll(body)
 		if err != nil {
 			as.err = urlErrorWrap(as.es.plan(), as.maybeRedundant(err))
 		}
+		as.checkpoint = readBodyClosing
+		_ = body.Close()
 		as.checkpoint = readBody
 		as.es.signal <- as
 	}
+}
+
+func (as *attemptState) recoverPanic() {
+	r := recover()
+	if r == nil {
+		return
+	}
+
+	// Close the body. If checkpoint is already readBodyClosing, it means
+	// the panic likely emanated from calling Close() and there's no
+	// point doing it again.
+	if as.checkpoint < readBodyClosing {
+		resp := as.resp
+		if resp != nil {
+			body := resp.Body
+			if body != nil {
+				func() {
+					defer func() { _ = recover() }()
+					_ = body.Close()
+				}()
+			}
+		}
+	}
+
+	// Communicate the panic.
+	as.panicVal = r
+	as.checkpoint = panicked
+	as.es.signal <- as
 }
 
 func (as *attemptState) maybeRedundant(err error) error {

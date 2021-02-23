@@ -401,10 +401,6 @@ func testClientBodyError(t *testing.T) {
 		mockReadCloser.On("Read", mock.Anything).Return(0, io.EOF).Once()
 		closeErr := errors.New("a very bad closing error")
 		mockReadCloser.On("Close").Return(closeErr).Once()
-		// FIXME: I have occasionally seen a failure in this case because
-		//        the "Close" call wasn't called on the mockReadCloser.
-		// UPDATE: Confirmed to still be happening sporadically after
-		//         fixing the inverted halt logic bug on 2/21/2021.
 
 		e, err := cl.Get("test")
 
@@ -647,11 +643,17 @@ func testClientRetryVarious(t *testing.T) {
 
 func testClientPanic(t *testing.T) {
 	t.Parallel()
-	t.Run("ensure cancel called", testClientPanicEnsureCancelCalled)
-	t.Run("ensure Body closed", testClientPanicEnsureBodyClosed)
+	t.Run("in event handler", func(t *testing.T) {
+		t.Run("ensure Cancel called", testClientEventHandlerPanicEnsureCancelCalled)
+		t.Run("ensure Body closed", testClientEventHandlerPanicEnsureBodyClosed)
+	})
+	t.Run("in sendAndReceive goroutine", func(t *testing.T) {
+		t.Run("core", testClientGoroutinePanicCore)
+		t.Run("caused by event handler", testClientGoroutineCausedByEventHandler)
+	})
 }
 
-func testClientPanicEnsureCancelCalled(t *testing.T) {
+func testClientEventHandlerPanicEnsureCancelCalled(t *testing.T) {
 	// Ensure that if the event handler panics, the request context
 	// cancel function is called.
 	for _, evt := range []Event{BeforeAttempt, BeforeReadBody} {
@@ -683,7 +685,129 @@ func testClientPanicEnsureCancelCalled(t *testing.T) {
 	}
 }
 
-func testClientPanicEnsureBodyClosed(t *testing.T) {
+func testClientGoroutinePanicCore(t *testing.T) {
+	panicVal := "boo!"
+	testCases := []struct {
+		name              string
+		setupMockHTTPDoer func(t *testing.T, mockDoer *mockHTTPDoer) *mockReadCloser
+	}{
+		{
+			name: "in Doer.Do",
+			setupMockHTTPDoer: func(_ *testing.T, mockDoer *mockHTTPDoer) *mockReadCloser {
+				mockDoer.On("Do", mock.AnythingOfType("*http.Request")).
+					Panic(panicVal).
+					Once()
+				return nil
+			},
+		},
+		{
+			name: "reading Body",
+			setupMockHTTPDoer: func(t *testing.T, mockDoer *mockHTTPDoer) *mockReadCloser {
+				mockReadCloser := newMockReadCloser(t)
+				mockDoer.On("Do", mock.AnythingOfType("*http.Request")).
+					Return(&http.Response{StatusCode: 200, Body: mockReadCloser}, nil).
+					Once()
+				mockReadCloser.On("Read", mock.Anything).
+					Panic(panicVal).
+					Once()
+				mockReadCloser.On("Close").
+					Once()
+				return mockReadCloser
+			},
+		},
+		{
+			name: "closing Body",
+			setupMockHTTPDoer: func(t *testing.T, mockDoer *mockHTTPDoer) *mockReadCloser {
+				mockReadCloser := newMockReadCloser(t)
+				mockDoer.On("Do", mock.AnythingOfType("*http.Request")).
+					Return(&http.Response{StatusCode: 200, Body: mockReadCloser}, nil).
+					Once()
+				mockReadCloser.On("Read", mock.Anything).
+					Return(0, io.EOF).
+					Once()
+				mockReadCloser.On("Close").
+					Panic(panicVal).
+					Once()
+				return mockReadCloser
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mockDoer := newMockHTTPDoer(t)
+			mockReadCloser := testCase.setupMockHTTPDoer(t, mockDoer)
+			cl := Client{
+				HTTPDoer:      mockDoer,
+				TimeoutPolicy: timeout.Infinite,
+			}
+			p, err := request.NewPlan("", "test", nil)
+			require.NotNil(t, p)
+			require.NoError(t, err)
+
+			assert.PanicsWithValue(t, panicVal, func() { _, _ = cl.Do(p) })
+
+			mockDoer.AssertExpectations(t)
+			if mockReadCloser != nil {
+				mockReadCloser.AssertExpectations(t)
+			}
+		})
+	}
+}
+
+func testClientGoroutineCausedByEventHandler(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		panicVal             string
+		handleBeforeReadBody func(e *request.Execution)
+	}{
+		{
+			name:     "response nilled",
+			panicVal: "httpx: attempt response was nilled",
+			handleBeforeReadBody: func(e *request.Execution) {
+				e.Response = nil
+			},
+		},
+		{
+			name:     "response body nilled",
+			panicVal: "httpx: attempt response body was nilled",
+			handleBeforeReadBody: func(e *request.Execution) {
+				e.Response.Body = nil
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mockDoer := newMockHTTPDoer(t)
+			cl := Client{
+				HTTPDoer:      mockDoer,
+				TimeoutPolicy: timeout.Infinite,
+				Handlers:      &HandlerGroup{},
+			}
+			mockDoer.On("Do", mock.AnythingOfType("*http.Request")).
+				Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("never gonna be read"))}, nil).
+				Once()
+			cl.Handlers.mock(BeforeReadBody).
+				On("Handle", BeforeReadBody, mock.AnythingOfType("*request.Execution")).
+				Run(func(args mock.Arguments) {
+					e := args.Get(1).(*request.Execution)
+					testCase.handleBeforeReadBody(e)
+				}).
+				Once()
+			p, err := request.NewPlan("", "test", nil)
+			require.NotNil(t, p)
+			require.NoError(t, err)
+
+			assert.PanicsWithValue(t, testCase.panicVal, func() { _, _ = cl.Do(p) })
+
+			mockDoer.AssertExpectations(t)
+			cl.Handlers.assertExpectations(t)
+		})
+	}
+}
+
+func testClientEventHandlerPanicEnsureBodyClosed(t *testing.T) {
 	doer := newMockHTTPDoer(t)
 	handlers := &HandlerGroup{}
 	cl := &Client{
