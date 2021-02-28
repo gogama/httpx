@@ -284,12 +284,6 @@ func testClientAttemptTimeout(t *testing.T) {
 					cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
 					if isPlanTimeout {
 						cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
-						// FIXME: Very rarely, I've seen the "from plan deadline" test
-						//        fail when asserting mock expectations because the
-						//        AfterPlanTimeout handler didn't get called. Need to
-						//        make this test more reliable...
-						// UPDATE: Confirmed to still be happening sporadically after
-						//         fixing the inverted halt logic bug on 2/21/2021.
 					}
 					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
 					cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
@@ -362,6 +356,7 @@ func testClientBodyError(t *testing.T) {
 				//        sporadic cases where the timeout isn't detected/the
 				//        execution doesn't end in error, and the above five lines
 				//        of assert/require fail.
+				// UPDATE: +1, happened multiple times 2/28/2021.
 				urlError := err.(*url.Error)
 				assert.True(t, urlError.Timeout())
 				assert.Equal(t, "Post", urlError.Op)
@@ -456,6 +451,7 @@ func testClientRetryPlanTimeout(t *testing.T) {
 	//        in handleCheckpoint() is triggered. So probably the thing to do is
 	//        first fix the halt/stop bug/confusion, then increase the plan timeout
 	//        in this test above 10 milliseconds.
+	// UPDATE: +1, happened multiple times 2/28/2021.
 	mockRetryPolicy.On("Wait", mock.Anything).Return(time.Hour).Once()
 	cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.MatchedBy(func(e *request.Execution) bool {
 		err, ok := e.Err.(*url.Error)
@@ -1054,6 +1050,9 @@ func TestClientRacingRetry(t *testing.T) {
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 0 && e.Attempt <= 2
 	})).Return(true).Times(3)
+	// FIXME: I have seen the above expectation on Decide fail very rarely (< 1 in 5000)
+	//        because Attempt 2 starts in Wave 1, not Wave 0. No hypothesis yet on why.
+	// UPDATE: +1, happened multiple times 2/28/2021.
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 1 && e.Attempt == 3
 	})).Return(false).Once()

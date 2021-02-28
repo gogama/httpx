@@ -159,15 +159,19 @@ func (c *Client) Do(p *request.Plan) (*request.Execution, error) {
 	es.handlers.run(BeforeExecutionStart, es.exec)
 	es.exec.Start = time.Now()
 
-	for es.wave() && es.retry() {
+	for es.wave() && es.wait() {
 		es.exec.Wave++
 	}
 
+	var planErr *url.Error
 	if es.planCancelled() {
-		p := es.plan()
-		err := urlErrorWrap(p, p.Context().Err())
-		es.exec.Err = err
-		if err.Timeout() {
+		planErr = urlErrorWrap(es.plan(), es.planContext().Err())
+	} else if es.planTimedOut() {
+		planErr = urlErrorWrap(es.plan(), context.DeadlineExceeded)
+	}
+	if planErr != nil {
+		es.exec.Err = planErr
+		if planErr.Timeout() {
 			es.handlers.run(AfterPlanTimeout, es.exec)
 		}
 	}
@@ -299,7 +303,7 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, halt b
 	}
 }
 
-func (es *execState) retry() bool {
+func (es *execState) wait() bool {
 	d := es.retryPolicy.Wait(es.exec)
 	es.setTimer(d)
 	select {
@@ -348,6 +352,14 @@ func (es *execState) planContext() context.Context {
 func (es *execState) planCancelled() bool {
 	err := es.planContext().Err()
 	return err != nil
+}
+
+func (es *execState) planTimedOut() bool {
+	ctx := es.planContext()
+	if d, ok := ctx.Deadline(); ok {
+		return !time.Now().Before(d)
+	}
+	return false
 }
 
 func (es *execState) cleanupWave() {
