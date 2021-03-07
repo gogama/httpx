@@ -284,6 +284,10 @@ func testClientAttemptTimeout(t *testing.T) {
 					cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
 					if isPlanTimeout {
 						cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
+						// FIXME: I saw the isPlanTimeout variant fail again
+						//        today, with a non-nil Response in the execution
+						//        which I found shocking. (3/2/201). So the flakiness
+						//        here isn't entirely conquered.
 					}
 					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
 					cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
@@ -326,7 +330,7 @@ func testClientBodyError(t *testing.T) {
 
 				cl := &Client{
 					HTTPDoer:      server.Client(),
-					TimeoutPolicy: timeout.Fixed(50 * time.Millisecond),
+					TimeoutPolicy: timeout.Fixed(85 * time.Millisecond),
 					RetryPolicy:   retry.Never,
 					Handlers:      &HandlerGroup{},
 				}
@@ -335,10 +339,11 @@ func testClientBodyError(t *testing.T) {
 					StatusCode: 200,
 					Body: []bodyChunk{
 						{
-							Data: []byte("hello"),
+							Pause: 1 * time.Millisecond,
+							Data:  []byte("hello"),
 						},
 						{
-							Pause: 100 * time.Millisecond,
+							Pause: 350 * time.Millisecond,
 							Data:  []byte("world"),
 						},
 					},
@@ -357,6 +362,23 @@ func testClientBodyError(t *testing.T) {
 				//        execution doesn't end in error, and the above five lines
 				//        of assert/require fail.
 				// UPDATE: +1, happened multiple times 2/28/2021.
+				// UPDATE: +1, happened multiple times 3/2/2021 (both variants).
+				//
+				// I've seen two variants of this issue. In one, the
+				// early asserts fail and the test is terminated by require.IsType.
+				// In this one, we don't know whether the AfterAttemptTimeout
+				// handler is called because the require kills us early.
+				//
+				// In the other, the first assertion to fail is the trace.calls
+				// assertion, because BeforeReadBody isn't called (even though
+				// AfterAttemptTimeout is) suggesting the timeout is happening
+				// while waiting for the headers.
+				//
+				// On 3/2/2021, I modded the times a bit, turning up the timeout
+				// from 50 to 85 ms (lower probability of timeout before reading
+				// headers) and turning up the pauses (lower probability of
+				// somehow reading the body before the request context can be
+				// cancelled.
 				urlError := err.(*url.Error)
 				assert.True(t, urlError.Timeout())
 				assert.Equal(t, "Post", urlError.Op)
@@ -440,7 +462,7 @@ func testClientRetryPlanTimeout(t *testing.T) {
 	mockDoer.On("Do", mock.Anything).Return(&http.Response{
 		Body: ioutil.NopCloser(bytes.NewReader(nil)),
 	}, nil).Once()
-	mockRetryPolicy.On("Decide", mock.Anything).Return(true).Once()
+	mockRetryPolicy.On("Decide", mock.Anything).Return(true).Maybe()
 	// FIXME: I have occasionally seen this test case fail because the Decide
 	//        doesn't get called on the mock. This one is pretty bizarre, because
 	//        the Wait is getting called even though the Decide isn't, which
@@ -452,7 +474,14 @@ func testClientRetryPlanTimeout(t *testing.T) {
 	//        first fix the halt/stop bug/confusion, then increase the plan timeout
 	//        in this test above 10 milliseconds.
 	// UPDATE: +1, happened multiple times 2/28/2021.
-	mockRetryPolicy.On("Wait", mock.Anything).Return(time.Hour).Once()
+	// UPDATE: +1, happened on 3/6/2021. I think occasionally the plan timeout
+	//         was being detected after the AfterAttempt handler but BEFORE the
+	//         checking retry policy's the Decide. This is fine. I considered
+	//         upping the plan timeout but ultimately went with switching the
+	//         mock .Once() to .Maybe() as a more reliable fix. This should
+	//         correct it and these FIXME comments can be removed if it doesn't
+	//         happen again.
+	mockRetryPolicy.On("Wait", mock.Anything).Return(time.Hour).Maybe()
 	cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.MatchedBy(func(e *request.Execution) bool {
 		err, ok := e.Err.(*url.Error)
 		return e.Attempt == 0 && e.AttemptTimeouts == 0 &&
@@ -1053,6 +1082,7 @@ func TestClientRacingRetry(t *testing.T) {
 	// FIXME: I have seen the above expectation on Decide fail very rarely (< 1 in 5000)
 	//        because Attempt 2 starts in Wave 1, not Wave 0. No hypothesis yet on why.
 	// UPDATE: +1, happened multiple times 2/28/2021.
+	// UPDATE: +1, happened on 3/2/2021 (Attempt 2/Wave 1/Racing 0), multiple times
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 1 && e.Attempt == 3
 	})).Return(false).Once()
