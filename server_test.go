@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -133,9 +134,12 @@ func serverHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Sleep for the duration indicated by the pause field. This is done
-	// to allow the client to play with timeouts.
-	time.Sleep(i.HeaderPause)
+	// Validate the instruction.
+	if i.StatusCode == 0 {
+		w.WriteHeader(400)
+		_, _ = io.WriteString(w, fmt.Sprintf("bad StatusCode in instruction: %v", i))
+		return
+	}
 
 	// Get the Flusher, panicking if it's not available.
 	f, ok := w.(http.Flusher)
@@ -143,17 +147,48 @@ func serverHandler(w http.ResponseWriter, req *http.Request) {
 		panic("w does not implement Flusher")
 	}
 
-	// Return the HTTP response stipulated by the client.
-	if i.StatusCode == 0 {
-		w.WriteHeader(400)
-		_, _ = io.WriteString(w, fmt.Sprintf("bad StatusCode in instruction: %v", i))
-		return
+	// Determine the content length of the response.
+	contentLength := 0
+	for _, chunk := range i.Body {
+		contentLength += len(chunk.Data)
 	}
+
+	// Create the response headers.
+	header := w.Header()
+	header.Add("Content-Length", strconv.Itoa(contentLength))
+
+	// Sleep for the duration indicated by the pause field. This is done
+	// to allow the client to play with timeouts.
+	time.Sleep(i.HeaderPause)
+
+	// Return the HTTP response stipulated by the client.
 	w.WriteHeader(i.StatusCode)
 	f.Flush()
+
+	// Write the response in chunks, pausing before each chunk.
 	for _, chunk := range i.Body {
+		data := chunk.Data
+
+		// Pre-write the first byte to test if the connection still
+		// works.
+		if len(data) > 0 {
+			prefix := data[0:1]
+			data = data[1:]
+			_, err = w.Write(prefix)
+			if err != nil {
+				return
+			}
+			f.Flush()
+		}
+
+		// Pause for the time indicated in the instruction.
 		time.Sleep(chunk.Pause)
-		_, _ = w.Write(chunk.Data)
+
+		// Write the remainder of the chunk.
+		_, err = w.Write(data)
+		if err != nil {
+			return
+		}
 		f.Flush()
 	}
 }
