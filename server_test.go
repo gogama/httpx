@@ -168,27 +168,29 @@ func serverHandler(w http.ResponseWriter, req *http.Request) {
 	// Write the response in chunks, pausing before each chunk.
 	for _, chunk := range i.Body {
 		data := chunk.Data
+		pause := chunk.Pause
 
-		// Pre-write the first byte to test if the connection still
-		// works.
-		if len(data) > 0 {
-			prefix := data[0:1]
-			data = data[1:]
-			_, err = w.Write(prefix)
+		// Divide the chunk pause by the chunk length to get the pause
+		// amount per byte.
+		ppb := chunk.Pause / time.Duration(len(chunk.Data))
+
+		// Write the chunk one byte at a time, flushing and pausing
+		// after each byte is written. The pause, again, is to allow the
+		// client to play with timeouts.
+		for i := range data {
+			b := data[i : i+1]
+			_, err = w.Write(b)
 			if err != nil {
 				return
 			}
 			f.Flush()
+			time.Sleep(ppb)
+			pause -= ppb
 		}
 
-		// Pause for the time indicated in the instruction.
-		time.Sleep(chunk.Pause)
-
-		// Write the remainder of the chunk.
-		_, err = w.Write(data)
-		if err != nil {
-			return
+		// Pause for any unconsumed time in the chunk pause.
+		if pause > 0 {
+			time.Sleep(pause)
 		}
-		f.Flush()
 	}
 }

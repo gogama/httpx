@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -281,7 +282,15 @@ func testClientAttemptTimeout(t *testing.T) {
 					}
 					cl.Handlers.mock(BeforeExecutionStart).On("Handle", BeforeExecutionStart, mock.Anything).Return().Once()
 					cl.Handlers.mock(BeforeAttempt).On("Handle", BeforeAttempt, mock.Anything).Return().Once()
+					cl.Handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.Anything).Return().Maybe()
 					cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
+					// FIXME: I saw the *attempt deadline* variant fail once on 3/8/2021 due
+					//        to failing to detect the attempt timeout. The steps I took to
+					//        address this were to REDUCE the header timeout to 50ms, add
+					//        150ms of body chunk pauses, and add a MAYBE call of the
+					//        BeforeReadBody handler. Basically the idea is let's stretch
+					//        the timeline longer but potentially reduce the time the server
+					//        handler goroutine blocking.
 					if isPlanTimeout {
 						cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
 						// FIXME: I saw the isPlanTimeout variant fail again
@@ -297,7 +306,17 @@ func testClientAttemptTimeout(t *testing.T) {
 					if isPlanTimeout {
 						ctx, cancel = context.WithTimeout(ctx, 5*time.Microsecond)
 					}
-					p := (&serverInstruction{StatusCode: 200, HeaderPause: 100 * time.Millisecond}).toPlan(ctx, "POST", server)
+					p := (&serverInstruction{
+						StatusCode:  201,
+						HeaderPause: 25 * time.Millisecond,
+						Body: []bodyChunk{
+							{Pause: 50 * time.Millisecond, Data: []byte("Here is your first chunk.")},
+							{Pause: 100 * time.Millisecond, Data: []byte("And here is your second and longer chunk.")},
+							{Pause: 200 * time.Millisecond, Data: []byte("And here is your third and yet longer chunk.")},
+							{Pause: 400 * time.Millisecond, Data: []byte("Et voilà, un quatrième morceau qui est encore plus longue.")},
+							{Pause: 800 * time.Millisecond, Data: []byte("And fifth, and last (but not least) is the longest chunk of all.")},
+						},
+					}).toPlan(ctx, "POST", server)
 					e, err := cl.Do(p)
 					if cancel != nil {
 						cancel()
@@ -309,7 +328,16 @@ func testClientAttemptTimeout(t *testing.T) {
 					assert.Equal(t, transient.Timeout, transient.Categorize(err))
 					assert.IsType(t, &url.Error{}, err)
 					assert.NotNil(t, e.Request)
-					assert.Nil(t, e.Response)
+					readBody := !cl.Handlers.mock(BeforeReadBody).
+						IsMethodCallable(t, "Handle", BeforeReadBody, mock.Anything)
+					if !readBody {
+						assert.Nil(t, e.Response)
+						assert.Equal(t, 0, e.StatusCode())
+					} else {
+						assert.NotNil(t, e.Response)
+						assert.Equal(t, 201, e.StatusCode())
+						assert.NotNil(t, e.Body)
+					}
 					assert.Equal(t, e.Attempt, 0)
 					assert.Equal(t, e.AttemptTimeouts, 1)
 					assert.Equal(t, 0, e.Racing)
@@ -330,7 +358,7 @@ func testClientBodyError(t *testing.T) {
 
 				cl := &Client{
 					HTTPDoer:      server.Client(),
-					TimeoutPolicy: timeout.Fixed(85 * time.Millisecond),
+					TimeoutPolicy: timeout.Fixed(25 * time.Millisecond),
 					RetryPolicy:   retry.Never,
 					Handlers:      &HandlerGroup{},
 				}
@@ -339,12 +367,26 @@ func testClientBodyError(t *testing.T) {
 					StatusCode: 200,
 					Body: []bodyChunk{
 						{
-							Pause: 1 * time.Millisecond,
-							Data:  []byte("hello"),
+							Pause: 3 * time.Millisecond,
+							Data: []byte(`Lorem ipsum dolor sit amet,
+											consectetur adipiscing elit.`),
 						},
 						{
-							Pause: 350 * time.Millisecond,
-							Data:  []byte("world"),
+							Pause: 30 * time.Millisecond,
+							Data:  []byte(`Duis vel ullamcorper nibh.`),
+						},
+						{
+							Pause: 300 * time.Millisecond,
+							Data: []byte(`Pellentesque condimentum ipsum ipsum,
+											facilisis elementum metus commodo sed.`),
+						},
+						{
+							Pause: 3000 * time.Millisecond,
+							Data: []byte(`Donec in sapien vitae eros tincidunt
+											ehicula. Donec quis augue orci.
+											Curabitur tincidunt turpis et lectus
+											porta ornare. Curabitur fermentum
+											aliquet rutrum.`),
 						},
 					},
 				}).toPlan(context.Background(), "POST", server)
@@ -363,6 +405,14 @@ func testClientBodyError(t *testing.T) {
 				//        of assert/require fail.
 				// UPDATE: +1, happened multiple times 2/28/2021.
 				// UPDATE: +1, happened multiple times 3/2/2021 (both variants).
+				// UPDATE: +1, second variant only happened dozens of times on 3/6/2021 (first variant fixed?)
+				//             in response to the 3/6/2021 incident I tried increasing timeouts etc. again
+				// UPDATE: +1, second variant happened on 3/8 but only once in some 4000 test cases. In
+				//             response, I again upped the timeout (from 200ms to 250ms) and refactored the
+				//             chunk pauses in the test server even more.
+				// UPDATE: +1, second variant happened on 3/10 even after all my other changes. This one is
+				//             too stubborn to keep trying to fight with timeouts, need to make the assertions
+				//             more flexible.
 				//
 				// I've seen two variants of this issue. In one, the
 				// early asserts fail and the test is terminated by require.IsType.
@@ -379,26 +429,70 @@ func testClientBodyError(t *testing.T) {
 				// headers) and turning up the pauses (lower probability of
 				// somehow reading the body before the request context can be
 				// cancelled.
+				//
+				// On 3/6/2021, I refactored the test server somewhat to try to
+				// reduce the sleep intervals, as I had a crazy theory that after
+				// the client test timed out, all sorts of hung server connections
+				// were accumulating due to super-lengthy sleeps, and this was
+				// leading to problems after the tests ran for a while. Also
+				// turned up the client-side timeout.
+				//
+				// On 3/8/2021, I did further refactoring of the test server
+				// chunking to really cut the length of the individual sleeps
+				// and ensure the server gets "connection closed" feedback on
+				// every byte. Also turned up the client-side timeout another
+				// 50ms.
 				urlError := err.(*url.Error)
 				assert.True(t, urlError.Timeout())
 				assert.Equal(t, "Post", urlError.Op)
+				// Typically this test case will provoke a timeout while reading
+				// the response body, so the BeforeReadBody handler will be
+				// called. However in a small number of cases, the timeout
+				// actually occurs while awaiting the response headers, before
+				// the body read. So we need to handle both cases.
+				n := len(trace.calls)
+				assert.GreaterOrEqual(t, n, 5)
+				assert.LessOrEqual(t, n, 6)
 				assert.Equal(t, []string{
 					"BeforeExecutionStart",
 					"BeforeAttempt",
-					"BeforeReadBody",
+				}, trace.calls[0:2])
+				if n == 6 {
+					assert.Equal(t, "BeforeReadBody", trace.calls[2])
+				}
+				assert.Equal(t, []string{
 					"AfterAttemptTimeout",
 					"AfterAttempt",
 					"AfterExecutionEnd",
-				}, trace.calls)
+				}, trace.calls[n-3:])
 				require.NotNil(t, e.Request)
 				assert.Equal(t, e.Request.URL.String(), urlError.URL)
-				assert.NotNil(t, e.Response)
-				assert.NotNil(t, e.Body) // ioutil.ReadAll returns non-nil []byte plus error
+				// Again typically this test case will provoke a timeout after
+				// having read the headers and during the process of reading the
+				// response body. However sometimes due to the vagaries of timing,
+				// the timeout will occur before the headers can be read.
+				if n == 6 {
+					assert.NotNil(t, e.Response)
+					assert.NotNil(t, e.Body) // ioutil.ReadAll returns non-nil []byte plus error
+					assert.Equal(t, 200, e.StatusCode())
+				} else {
+					assert.Nil(t, e.Response)
+					assert.Nil(t, e.Body)
+					assert.Equal(t, 0, e.StatusCode())
+				}
+				// FIXME: The new flaky issue is the three assertions above,
+				//        and the StatusCode assertion at the end. As of 3/10/2021,
+				//        this is the major cause of inconsistent test results.
+				//
+				//        The response coming up nil should be a continuation
+				//        of the earlier problem, namely that every so often
+				//        the test times out BEFORE reading the headers. I am
+				//        addressing it by conditional behavior based on the
+				//        number of event handlers that were called.
 				assert.Equal(t, 0, e.Attempt)
 				assert.Equal(t, 1, e.AttemptTimeouts)
 				assert.Equal(t, 0, e.Racing)
 				assert.Equal(t, 0, e.Wave)
-				assert.Equal(t, 200, e.StatusCode())
 			})
 		}
 	})
@@ -1021,13 +1115,21 @@ func TestClientRacing(t *testing.T) {
 
 func TestClientRacingNeverStart(t *testing.T) {
 	// This test schedules one concurrent attempt but never starts it.
+	doer := newMockHTTPDoer(t)
 	retryPolicy := newMockRetryPolicy(t)
 	racingPolicy := newMockRacingPolicy(t)
 	cl := Client{
+		HTTPDoer:     doer,
 		RetryPolicy:  retryPolicy,
 		RacingPolicy: racingPolicy,
 		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert only one attempt ever started as per handlers.
 	}
+	waiter := make(chan time.Time)
+	defer close(waiter)
+	doer.On("Do", mock.Anything).
+		WaitUntil(waiter).
+		Return(&http.Response{StatusCode: 204, Body: ioutil.NopCloser(strings.NewReader("foo"))}, nil).
+		Once()
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 0 && e.StatusCode() == 204
 	})).Return(false)
@@ -1036,16 +1138,31 @@ func TestClientRacingNeverStart(t *testing.T) {
 	})).Return(time.Nanosecond).Once()
 	racingPolicy.On("Start", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Attempt == 0 && e.Racing == 1
-	})).Return(false).Once()
+	})).
+		Run(func(_ mock.Arguments) { waiter <- time.Now() }).
+		Return(false).
+		Once()
+	// FIXME: This test case flaked out on 3/10/2021. The Schedule() method
+	//        was called, but not the Start() method. This would seem to be
+	//        because the response came back from the server before the client
+	//        could attempt to start the concurrent attempt. Addressed this
+	//        by factoring out the live HTTP server altogether and just using
+	//        mocks.
 
 	inst := serverInstruction{
-		HeaderPause: 50 * time.Millisecond,
+		HeaderPause: 25 * time.Millisecond,
 		StatusCode:  204,
+		Body: []bodyChunk{
+			{Pause: 50 * time.Millisecond, Data: []byte("0,1,2,3,4,5,6,7,8,9")},
+			{Pause: 100 * time.Millisecond, Data: []byte("a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z")},
+			{Pause: 200 * time.Millisecond, Data: []byte("??????????!!!!!!!!!!..........,,,,,,,,,,;;;;;;;;;;::::::::::")},
+		},
 	}
 	p := inst.toPlan(context.Background(), "POST", httpServer)
 
 	e, err := cl.Do(p)
 
+	doer.AssertExpectations(t)
 	retryPolicy.AssertExpectations(t)
 	racingPolicy.AssertExpectations(t)
 	cl.Handlers.assertExpectations(t)
@@ -1070,12 +1187,34 @@ func TestClientRacingRetry(t *testing.T) {
 		HTTPDoer:     doer,
 		RetryPolicy:  retryPolicy,
 		RacingPolicy: racingPolicy,
-		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert all expected handlers are called.
+		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert all expected handlers are callOrder.
 	}
-	doer.On("Do", mock.Anything).
-		Run(func(_ mock.Arguments) { time.Sleep(50 * time.Millisecond) }).
-		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry"))}, nil).
-		Times(4)
+	bridge1, bridge2 := make(chan time.Time), make(chan time.Time)
+	defer func() {
+		close(bridge1)
+		close(bridge2)
+	}()
+	// Chain the first three attempts (all are racing) so that the first one
+	// waits for the second one to start, and the second one waits for the
+	// third one to start.
+	callOrder := callOrder{}
+	doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(0) })).
+		WaitUntil(bridge1).
+		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry-0"))}, nil).
+		Times(1)
+	doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(1) })).
+		WaitUntil(bridge2).
+		Run(func(_ mock.Arguments) { bridge1 <- time.Now() }).
+		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry-1"))}, nil).
+		Times(1)
+	doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(2) })).
+		Run(func(_ mock.Arguments) { bridge2 <- time.Now() }).
+		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry=2"))}, nil).
+		Times(1)
+	// The last attempt occurs in wave 3, by itself (no racing).
+	doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(3) })).
+		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry=3"))}, nil).
+		Times(1)
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 0 && e.Attempt <= 2
 	})).Return(true).Times(3)
@@ -1083,6 +1222,16 @@ func TestClientRacingRetry(t *testing.T) {
 	//        because Attempt 2 starts in Wave 1, not Wave 0. No hypothesis yet on why.
 	// UPDATE: +1, happened multiple times 2/28/2021.
 	// UPDATE: +1, happened on 3/2/2021 (Attempt 2/Wave 1/Racing 0), multiple times
+	// UPDATE: +1, happened on 3/6/2021 (Attempt 2/Wave 1/Racing 0), multiple times
+	// UPDATE: +1, happened on 3/8/2021 (Attempt 2/Wave 1/Racing 0), multiple times (in response I upped the timeout to 150ms)
+	// UPDATE: +1, happened on 3/9/2021 (Attempt 2/Wave 1/Racing 0), once (the incidence is decreasing rapidly, timeout increase was effective).
+	//
+	// On 3/10, I refactored this test case to use a more reliable system for
+	// coordinating the attempts - it should prevent the flakiness and be faster
+	// too since the arbitrary delays are gone. The problem before was that
+	// sometimes the Attempts 0/1 were finishing before Attempt 2 could start,
+	// pushing Attempt 2 to Wave 1. Now Attempt 2 blocks Attempts 0 and 1 from
+	// finishing so that can't happen.
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 1 && e.Attempt == 3
 	})).Return(false).Once()
@@ -1275,4 +1424,12 @@ func (m *mockRacingPolicy) Schedule(e *request.Execution) time.Duration {
 func (m *mockRacingPolicy) Start(e *request.Execution) bool {
 	args := m.Called(e)
 	return args.Bool(0)
+}
+
+type callOrder struct {
+	counter int32
+}
+
+func (com *callOrder) Match(x int32) bool {
+	return atomic.CompareAndSwapInt32(&com.counter, x, x+1)
 }
