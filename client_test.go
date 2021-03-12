@@ -284,19 +284,8 @@ func testClientAttemptTimeout(t *testing.T) {
 					cl.Handlers.mock(BeforeAttempt).On("Handle", BeforeAttempt, mock.Anything).Return().Once()
 					cl.Handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.Anything).Return().Maybe()
 					cl.Handlers.mock(AfterAttemptTimeout).On("Handle", AfterAttemptTimeout, mock.Anything).Return().Once()
-					// FIXME: I saw the *attempt deadline* variant fail once on 3/8/2021 due
-					//        to failing to detect the attempt timeout. The steps I took to
-					//        address this were to REDUCE the header timeout to 50ms, add
-					//        150ms of body chunk pauses, and add a MAYBE call of the
-					//        BeforeReadBody handler. Basically the idea is let's stretch
-					//        the timeline longer but potentially reduce the time the server
-					//        handler goroutine blocking.
 					if isPlanTimeout {
 						cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.Anything).Return().Once()
-						// FIXME: I saw the isPlanTimeout variant fail again
-						//        today, with a non-nil Response in the execution
-						//        which I found shocking. (3/2/201). So the flakiness
-						//        here isn't entirely conquered.
 					}
 					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.Anything).Return().Once()
 					cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.Anything).Return().Once()
@@ -399,49 +388,6 @@ func testClientBodyError(t *testing.T) {
 				assert.Same(t, err, e.Err)
 				assert.Equal(t, transient.Timeout, transient.Categorize(err))
 				require.IsType(t, &url.Error{}, err)
-				// FIXME: Even after the halt logic fix on 2/21/2021, I have seen
-				//        sporadic cases where the timeout isn't detected/the
-				//        execution doesn't end in error, and the above five lines
-				//        of assert/require fail.
-				// UPDATE: +1, happened multiple times 2/28/2021.
-				// UPDATE: +1, happened multiple times 3/2/2021 (both variants).
-				// UPDATE: +1, second variant only happened dozens of times on 3/6/2021 (first variant fixed?)
-				//             in response to the 3/6/2021 incident I tried increasing timeouts etc. again
-				// UPDATE: +1, second variant happened on 3/8 but only once in some 4000 test cases. In
-				//             response, I again upped the timeout (from 200ms to 250ms) and refactored the
-				//             chunk pauses in the test server even more.
-				// UPDATE: +1, second variant happened on 3/10 even after all my other changes. This one is
-				//             too stubborn to keep trying to fight with timeouts, need to make the assertions
-				//             more flexible.
-				//
-				// I've seen two variants of this issue. In one, the
-				// early asserts fail and the test is terminated by require.IsType.
-				// In this one, we don't know whether the AfterAttemptTimeout
-				// handler is called because the require kills us early.
-				//
-				// In the other, the first assertion to fail is the trace.calls
-				// assertion, because BeforeReadBody isn't called (even though
-				// AfterAttemptTimeout is) suggesting the timeout is happening
-				// while waiting for the headers.
-				//
-				// On 3/2/2021, I modded the times a bit, turning up the timeout
-				// from 50 to 85 ms (lower probability of timeout before reading
-				// headers) and turning up the pauses (lower probability of
-				// somehow reading the body before the request context can be
-				// cancelled.
-				//
-				// On 3/6/2021, I refactored the test server somewhat to try to
-				// reduce the sleep intervals, as I had a crazy theory that after
-				// the client test timed out, all sorts of hung server connections
-				// were accumulating due to super-lengthy sleeps, and this was
-				// leading to problems after the tests ran for a while. Also
-				// turned up the client-side timeout.
-				//
-				// On 3/8/2021, I did further refactoring of the test server
-				// chunking to really cut the length of the individual sleeps
-				// and ensure the server gets "connection closed" feedback on
-				// every byte. Also turned up the client-side timeout another
-				// 50ms.
 				urlError := err.(*url.Error)
 				assert.True(t, urlError.Timeout())
 				assert.Equal(t, "Post", urlError.Op)
@@ -480,15 +426,6 @@ func testClientBodyError(t *testing.T) {
 					assert.Nil(t, e.Body)
 					assert.Equal(t, 0, e.StatusCode())
 				}
-				// FIXME: The new flaky issue is the three assertions above,
-				//        and the StatusCode assertion at the end. As of 3/10/2021,
-				//        this is the major cause of inconsistent test results.
-				//
-				//        The response coming up nil should be a continuation
-				//        of the earlier problem, namely that every so often
-				//        the test times out BEFORE reading the headers. I am
-				//        addressing it by conditional behavior based on the
-				//        number of event handlers that were called.
 				assert.Equal(t, 0, e.Attempt)
 				assert.Equal(t, 1, e.AttemptTimeouts)
 				assert.Equal(t, 0, e.Racing)
@@ -557,24 +494,6 @@ func testClientRetryPlanTimeout(t *testing.T) {
 		Body: ioutil.NopCloser(bytes.NewReader(nil)),
 	}, nil).Once()
 	mockRetryPolicy.On("Decide", mock.Anything).Return(true).Maybe()
-	// FIXME: I have occasionally seen this test case fail because the Decide
-	//        doesn't get called on the mock. This one is pretty bizarre, because
-	//        the Wait is getting called even though the Decide isn't, which
-	//        shouldn't be possible. This is related to the halt/stop confusion
-	//        and the FIXME in handleCheckpoint(). But I think what is happening
-	//        is that every so often, the plan timeout occurs before the retry
-	//        evaluation can happen and then the short-circuit logic at the FIXME
-	//        in handleCheckpoint() is triggered. So probably the thing to do is
-	//        first fix the halt/stop bug/confusion, then increase the plan timeout
-	//        in this test above 10 milliseconds.
-	// UPDATE: +1, happened multiple times 2/28/2021.
-	// UPDATE: +1, happened on 3/6/2021. I think occasionally the plan timeout
-	//         was being detected after the AfterAttempt handler but BEFORE the
-	//         checking retry policy's the Decide. This is fine. I considered
-	//         upping the plan timeout but ultimately went with switching the
-	//         mock .Once() to .Maybe() as a more reliable fix. This should
-	//         correct it and these FIXME comments can be removed if it doesn't
-	//         happen again.
 	mockRetryPolicy.On("Wait", mock.Anything).Return(time.Hour).Maybe()
 	cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.MatchedBy(func(e *request.Execution) bool {
 		err, ok := e.Err.(*url.Error)
@@ -1096,20 +1015,17 @@ func testClientCloseIdleConnections(t *testing.T) {
 func TestClientRacing(t *testing.T) {
 	// What are some test cases we can do?
 	//
-	// 1. Enhance TestClientRacingRetry to look capture event handler
-	//    names. (Using addTraceHandlers.)
-	//
-	// 2. Schedule an extra attempt. Return success, take a long time.
+	// 1. Schedule an extra attempt. Return success, take a long time.
 	//    Ensure long time taker cancelled as redundant AND that all
 	//    the handlers are called as expected.
 	//
-	// 3. Ensure plan cancelled in the middle of the wave loop doesn't
+	// 2. Ensure plan cancelled in the middle of the wave loop doesn't
 	//    keep creating new attempts.
 	//
-	// 4. Ensure plan cancelled while multiple concurrent requests running
+	// 3. Ensure plan cancelled while multiple concurrent requests running
 	//    is correctly detected.
 	//
-	// 5. Panic in a handler while a bunch of parallel request attempts
+	// 4. Panic in a handler while a bunch of parallel request attempts
 	//    are running and ensure the cleanup code runs.
 }
 
@@ -1122,8 +1038,9 @@ func TestClientRacingNeverStart(t *testing.T) {
 		HTTPDoer:     doer,
 		RetryPolicy:  retryPolicy,
 		RacingPolicy: racingPolicy,
-		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert only one attempt ever started as per handlers.
+		Handlers:     &HandlerGroup{},
 	}
+	trace := cl.addTraceHandlers()
 	waiter := make(chan time.Time)
 	defer close(waiter)
 	doer.On("Do", mock.Anything).
@@ -1142,25 +1059,8 @@ func TestClientRacingNeverStart(t *testing.T) {
 		Run(func(_ mock.Arguments) { waiter <- time.Now() }).
 		Return(false).
 		Once()
-	// FIXME: This test case flaked out on 3/10/2021. The Schedule() method
-	//        was called, but not the Start() method. This would seem to be
-	//        because the response came back from the server before the client
-	//        could attempt to start the concurrent attempt. Addressed this
-	//        by factoring out the live HTTP server altogether and just using
-	//        mocks.
 
-	inst := serverInstruction{
-		HeaderPause: 25 * time.Millisecond,
-		StatusCode:  204,
-		Body: []bodyChunk{
-			{Pause: 50 * time.Millisecond, Data: []byte("0,1,2,3,4,5,6,7,8,9")},
-			{Pause: 100 * time.Millisecond, Data: []byte("a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z")},
-			{Pause: 200 * time.Millisecond, Data: []byte("??????????!!!!!!!!!!..........,,,,,,,,,,;;;;;;;;;;::::::::::")},
-		},
-	}
-	p := inst.toPlan(context.Background(), "POST", httpServer)
-
-	e, err := cl.Do(p)
+	e, err := cl.Get("test")
 
 	doer.AssertExpectations(t)
 	retryPolicy.AssertExpectations(t)
@@ -1173,6 +1073,13 @@ func TestClientRacingNeverStart(t *testing.T) {
 	assert.Equal(t, 0, e.Attempt)
 	assert.Equal(t, 0, e.Racing)
 	assert.Equal(t, 0, e.Wave)
+	assert.Equal(t, []string{
+		"BeforeExecutionStart",
+		"BeforeAttempt",
+		"BeforeReadBody",
+		"AfterAttempt",
+		"AfterExecutionEnd",
+	}, trace.calls)
 }
 
 func TestClientRacingRetry(t *testing.T) {
@@ -1187,8 +1094,9 @@ func TestClientRacingRetry(t *testing.T) {
 		HTTPDoer:     doer,
 		RetryPolicy:  retryPolicy,
 		RacingPolicy: racingPolicy,
-		Handlers:     &HandlerGroup{}, // FIXME: This is never used. Test should assert all expected handlers are callOrder.
+		Handlers:     &HandlerGroup{},
 	}
+	trace := cl.addTraceHandlers()
 	bridge1, bridge2 := make(chan time.Time), make(chan time.Time)
 	defer func() {
 		close(bridge1)
@@ -1218,20 +1126,6 @@ func TestClientRacingRetry(t *testing.T) {
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 0 && e.Attempt <= 2
 	})).Return(true).Times(3)
-	// FIXME: I have seen the above expectation on Decide fail very rarely (< 1 in 5000)
-	//        because Attempt 2 starts in Wave 1, not Wave 0. No hypothesis yet on why.
-	// UPDATE: +1, happened multiple times 2/28/2021.
-	// UPDATE: +1, happened on 3/2/2021 (Attempt 2/Wave 1/Racing 0), multiple times
-	// UPDATE: +1, happened on 3/6/2021 (Attempt 2/Wave 1/Racing 0), multiple times
-	// UPDATE: +1, happened on 3/8/2021 (Attempt 2/Wave 1/Racing 0), multiple times (in response I upped the timeout to 150ms)
-	// UPDATE: +1, happened on 3/9/2021 (Attempt 2/Wave 1/Racing 0), once (the incidence is decreasing rapidly, timeout increase was effective).
-	//
-	// On 3/10, I refactored this test case to use a more reliable system for
-	// coordinating the attempts - it should prevent the flakiness and be faster
-	// too since the arbitrary delays are gone. The problem before was that
-	// sometimes the Attempts 0/1 were finishing before Attempt 2 could start,
-	// pushing Attempt 2 to Wave 1. Now Attempt 2 blocks Attempts 0 and 1 from
-	// finishing so that can't happen.
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
 		return e.Wave == 1 && e.Attempt == 3
 	})).Return(false).Once()
@@ -1256,6 +1150,22 @@ func TestClientRacingRetry(t *testing.T) {
 	require.NoError(t, e.Err)
 	assert.Equal(t, 1, e.Wave)
 	assert.Equal(t, 3, e.Attempt)
+	n := 2 + 4*3
+	require.Len(t, trace.calls, n)
+	assert.Equal(t, []string{
+		"BeforeExecutionStart",
+		"BeforeAttempt",
+		"BeforeAttempt",
+		"BeforeAttempt",
+		"BeforeReadBody",
+	}, trace.calls[0:5])
+	assert.Equal(t, []string{
+		"AfterAttempt",
+		"BeforeAttempt",
+		"BeforeReadBody",
+		"AfterAttempt",
+		"AfterExecutionEnd",
+	}, trace.calls[n-5:n])
 }
 
 type mockHTTPDoer struct {
