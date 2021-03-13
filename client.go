@@ -207,12 +207,11 @@ func (es *execState) wave() bool {
 	es.handleCheckpoint(attempt)
 
 	es.installAttempt(0, nil, nil, nil, nil)
-	d := es.racingPolicy.Schedule(es.exec)
-	es.setTimer(d)
+	es.setTimer(es.racingPolicy.Schedule(es.exec))
 
-	// Flag drain indicates whether to finish all attempts in the wave. It is
-	// set true as soon as any one attempt in the wave finishes, whether the
-	// attempt is retryable or not.
+	// Flag drain indicates whether to close out the wave, finishing in flight
+	// attempts but not starting any new ones. It is set true as soon as any one
+	// attempt in the wave finishes, whether the attempt is retryable or not.
 	//
 	// Flag halt indicates whether to stop the whole execution. It is set true
 	// as soon as a non-retryable attempt is detected.
@@ -244,8 +243,7 @@ func (es *execState) wave() bool {
 				es.exec.Racing++
 				es.handleCheckpoint(attempt)
 				es.installAttempt(attempt.index, nil, nil, nil, nil)
-				d = es.racingPolicy.Schedule(es.exec)
-				es.setTimer(d)
+				es.setTimer(es.racingPolicy.Schedule(es.exec))
 			}
 		}
 	}
@@ -293,7 +291,7 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, halt b
 		attempt.body = es.exec.Body
 		attempt.checkpoint = done
 		drain = true
-		halt = es.planCancelled() || !es.retryPolicy.Decide(es.exec)
+		halt = attempt.redundant || es.planCancelled() || !es.retryPolicy.Decide(es.exec)
 		return
 	case panicked:
 		es.exec.Racing--
@@ -389,6 +387,8 @@ func (es *execState) cleanupWave() {
 			}
 			fallthrough
 		case readBody:
+			es.exec.Racing--
+		case panicked:
 			es.exec.Racing--
 		default:
 			panic("httpx: bad attempt checkpoint")
@@ -499,6 +499,13 @@ func (as *attemptState) recoverPanic() {
 		return
 	}
 
+	// Communicate the panic.
+	defer func() {
+		as.panicVal = r
+		as.checkpoint = panicked
+		as.es.signal <- as
+	}()
+
 	// Close the body. If checkpoint is already readBodyClosing, it means
 	// the panic likely emanated from calling Close() and there's no
 	// point doing it again.
@@ -507,18 +514,10 @@ func (as *attemptState) recoverPanic() {
 		if resp != nil {
 			body := resp.Body
 			if body != nil {
-				func() {
-					defer func() { _ = recover() }()
-					_ = body.Close()
-				}()
+				_ = body.Close()
 			}
 		}
 	}
-
-	// Communicate the panic.
-	as.panicVal = r
-	as.checkpoint = panicked
-	as.es.signal <- as
 }
 
 func (as *attemptState) maybeRedundant(err error) error {
