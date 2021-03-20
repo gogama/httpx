@@ -1,18 +1,17 @@
-httpx - Reliable HTTP with retry, racing, and more
-==================================================
+httpx - Best HTTP client for reliability (retry, plugins, racing, and more!) 
+============================================================================
 
 [![Build Status](https://travis-ci.com/gogama/httpx.svg)](https://travis-ci.com/gogama/httpx) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/httpx)](https://goreportcard.com/report/github.com/gogama/httpx) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/httpx)](https://pkg.go.dev/github.com/gogama/httpx)
 
-Package httpx provides a Go code (GoLang) HTTP client with
-enterprise-level reliability and a familiar interface.
+Package httpx is the best-in-class GoLang HTTP client for making HTTP
+requests with enterprise-level reliability.
 
 Features include:
 
 - Flexible retry policies
 - Flexible timeout policies (including adaptive timeouts)
-- Leveraging parallelism to race concurrent requests against each other
-- Fully buffered request and response bodies
-- Optionally customizable behavior via event handlers
+- Optional concurrent request support smooths over rough service patches ("racing")
+- Plugin and customization support via event handlers
 
 ----
 
@@ -39,164 +38,95 @@ func main() {
 }
 ```
 
-Check out the full API documentation: https://pkg.go.dev/github.com/gogama/httpx.
-
 ---
 
-Usage Guide
-===========
-
-## Concepts
-
-### Core types
-
-The core types are `request.Plan` and `request.Execution`.
-
-#### Plan
-
-A [`request.Plan`](https://pkg.go.dev/github.com/gogama/httpx/request#Plan) is a
-plan for making a successful HTTP request, if necessary using repeated attempts
-(retries). The `Plan` structure looks like a standard `http.Request` structure
-but with redundant (server only) fields removed, and with `Body` specified as a
-`[]byte` rather than an `io.ReadCloser`. Under the hood, `Client` converts
-`Plan` to `http.Request` when making individual request attempts.
-
-Use `request.NewPlan` to make a new HTTP request plan:
-
-```go
-// Body may be provided as nil, or a string, []byte, io.Reader or io.ReadCloser.
-p, err := request.NewPlan("POST", "http://example.com/upload", "body text")
-...
-e, err := client.Do(&p)
-...
-```
-
-Use `request.NewPlanWithContext` if you need to pass in an outside context, for
-example if you need to be able to cancel the overall plan execution:
-
-```go
-// Body may be provided as nil, or a string, []byte, io.Reader or io.ReadCloser.
-p, err := request.NewPlanWithContext(ctx, "PUT", "http://example.com/collections/1", "body text")
-...
-e, err := client.Do(&p)
-...
-```
-
-#### Execution
-
-A [`request.Execution`](https://pkg.go.dev/github.com/gogama/httpx/request#Execution)
-represents the state of a plan execution. While the plan is being executed,
-`Execution` captures the execution state for sharing with retry policies,
-timeout policies, and event handlers. After the plan execution is finished,
-`Execution` represents the final result of executing the plan.
-
-### Clients
-
-Create an `httpx.Client` to start executing reliable HTTP requests. `Client` has
-the familiar methods you are used to from `http.Client`, except that `Client.Do`
-consumes a `*request.Plan` instead of an `*http.Request`, and all methods return
-a `*request.Execution` instead of an `*http.Response`.
-
-An `httpx.Client` requires an `HTTPDoer` to perform the individual request
-attempts within an HTTP request plan execution. An `HTTPDoer` is any object that
-implements a `Do(*http.Request) (*http.Response, error)` method with similar
-semantics to `http.Client`. Typically, you will use an `http.Client` as the
-`HTTPDoer` and, indeed, the zero value `httpx.Client` uses `http.DefaultClient`
-for this purpose.
-
-To use a custom-configured `HTTPDoer`:
-
-```go
-doer := &http.Client{
-	...,    // See package "net/http" for detailed documentation
-}
-client := &httx.Client{
-	HTTPDoer:      doer,                // If omitted/nil, http.DefaultClient is used
-	RetryPolicy:   myRetryPolicy(),     // If omitted/nil, retry.DefaultPolicy is used
-	TimeoutPolicy: myTimeoutPolicy(),   // If omitted/nil, timeout.DefaultPolicy is used
-}
-```
+Quick Hits
+==========
 
 ## Retry
 
-A [`retry.Policy`](https://pkg.go.dev/github.com/gogama/httpx/retry#Policy) runs
-after each request attempt with a plan execution to decide whether a retry should
-be done and, if so, how long to wait before retrying (backoff).
-
-The default retry policy, `retry.DefaultPolicy` is sufficient for many common
-use cases. Use `retry.Never` as the policy to disable retries altogether.
-
-Construct a custom retry policy using `retry.NewPolicy`:
+The `httpx.Client` provides a reasonable default retry policy. To replace it
+with your own custom policy, use package retry, for example
 
 ```go
-retryPolicy := retry.NewPolicy(
-	retry.Before(20*time.Second).And(retry.TransientErr),
-	retry.NewExpWaiter(250*time.Millisecond, 1*time.Second, time.Now() /* jitter seed */))
 client := &httpx.Client{
-	RetryPolicy: retryPolicy,
+	RetryPolicy: retry.NewPolicy(
+		retry.Times(10).And(
+			retry.StatusCode(501, 502, 504).Or(retry.TransientErr)
+        ),
+        retry.NewExpWaiter(500*time.Millisecond, 30*time.Second, nil)
+    )
 }
 ```
+
+For more elaborate policies, write your own `retry.Decider` or `retry.Waiter`
+implementation. To disable retry altogether, use the built-in policy `retry.Never`:
 
 ## Timeouts
 
-### Attempt Timeouts
-
-A [`timeout.Policy`](https://pkg.go.dev/github.com/gogama/httpx/timeout#Policy)
-controls how client-side timeouts are set on individual HTTP request attempts
-within a plan execution.
-
-The default timeout policy, `timeout.DefaultPolicy` is sufficient for many
-common use cases. Use `timeout.Infinite` to disable client-side timeouts at the
-request attempt level.
-
-To use the same timeout for all attempts (initial and retries), use the
-`timeout.Fixed` policy generator:
+The `httpx.Client` provides a reasonable default timeout policy. To replace it
+with your own constant timeout, adaptive timeout, or custom policy, use package
+timeout, for example:
 
 ```go
 client := &httpx.Client{
-	TimeoutPolicy: timeout.Fixed(2*time.Second),
+	TimeoutPolicy: timeout.Fixed(30*time.Second) // Constant 30 second timeout
 }
 ```
 
-More subtle timeout behavior can be achieved with the `timeout.Adaptive` policy
-generator, or by implementing your own timeout policy.
+For more elaborate timeouts, use `timeout.Adaptive` or write your own
+`timeout.Policy` implementation. To disable timeouts altogether, use the built-in
+policy `timeout.Infinite`:
 
-### Plan Timeouts
+## Concurrent requests ("racing")
 
-An über-timeout may be set on the entire request plan by setting a deadline or
-timeout on the plan context:
+The `httpx.Client` advanced racing feature is disabled by default. Enable it by
+specifying a racing policy using built in components from package racing, or by
+writing your own `racing.Scheduler` and `racing.Starter` implementations. Here
+is a simple example using the built-ins:
 
 ```go
-ctx := context.WithTimeout(context.Background(), 30*time.Second)
-p := request.NewPlanWithContext(ctx, "GET", "https://example.com", nil)
-// Do will time out after 30 seconds even if the current attempt has not timed
-// out or if the retry policy indicates further retry is possible. 
-e, err := client.Do(p) 
+client := &httpx.Client{
+	// Use up to two extra parallel request attempts. Start the first extra attempt
+	// if the response to the initial attempt is not received within 300ms. Start
+	// the second extra attempt if neither the initial attempt nor the first extra
+	// attempt have received a response after one second. 
+	RacingPolicy: racing.NewPolicy( 
+		racing.NewStaticScheduler(300*time.Millisecond, 1*time.Second),
+		racing.AlwaysStart
+    )
+}
 ```
 
-Since the plan context is the parent context for each attempt within the plan
-execution, a plan timeout will also cause a request attempt timeout if it
-happens while an attempt's HTTP request is in flight.
+---
 
-## Event Handlers
+More Info
+=========
 
-Optional event handlers allow you to extend `httpx.Client` with custom logic,
-for example, adding attempt-specific headers to the request or recording log
-messages or metrics about the execution progress, request timings, &c.
+See the [USAGE.md](USAGE.md) for a more detailed usage guide and
+[FAQ.md](FAQ.md) for answers to frequently asked questions, or
+[click here](https://pkg.go.dev/github.com/gogama/httpx) for the full
+httpx API reference documentation.
 
-Handlers for a specific event type form a chain and are executed in the order
-they are added into the chain:
+---
+
+Plugins
+=======
+
+Customize the behavior of `httpx.Client` by adding event handlers to the
+client's handler group.
 
 ```go
 handlers := &httpx.HandlerGroup{}
-handlers.PushBack(httpx.BeforeAttempt, httpx.HandlerFunc(hf1))
-handlers.PushBack(httpx.BeforeAttempt, httpx.HandlerFunc(hf2))
-// When the BeforeAttempt event happens, client will execute hf1 first,
-// and then hf2.
-client := &httpx.Client{
-	Handlers: handlers,     // If omitted/nil, an empty handler group is used
-}
+handlers.PushBack(httpx.BeforeReadBody, myReadBodyHandler)
+client := &httpx.Client{Handlers: handlers}
 ```
+
+Besides writing your own, you can add install one of the following open source
+httpx plugins into your client:
+
+1. [aws-xray-httpx](https://github.com/gogama/aws-xray-httpx) - Adds AWS X-Ray
+   tracing support into `httpx.Client`.
 
 ---
 
@@ -204,10 +134,3 @@ License
 =======
 
 This project is licensed under the terms of the MIT License.
-
----
-
-FAQ
-===
-
-See [FAQ.md](FAQ.md) for answers to frequently asked questions. 

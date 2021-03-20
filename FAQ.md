@@ -1,7 +1,44 @@
 httpx - Frequently Asked Questions
 ==================================
 
-## A. Getting started
+Contents:
+
+1. [Why use httpx?](#1-why-use-httpx)
+2. [Getting started](#2-getting-started)
+3. [Retry FAQ](#3-retry-faq)
+4. [Timeout FAQ](#4-timeouts-faq)
+5. [Racing FAQ (concurrent requests)](#5-racing-faq-concurrent-requests)
+6. [Plugins (event handlers)](#6-plugins-event-handlers)
+7. [Detailed feature FAQ](#7-detailed-feature-faq)
+8. [Alternative HTTP client libraries](#8-alternative-http-client-libraries) 
+
+## 1. Why use httpx?
+
+### 1. What is httpx?
+
+Package httpx is a client-side HTTP library providing enterprise level
+HTTP transaction reliability.
+
+### 2. Who is the target user?
+
+Package httpx is targeted primarily at GoLang web services and web
+servers.
+
+### 3. What does httpx do?
+
+Package httpx allows web applications written in Go to invoke their
+dependencies over HTTP in a reliable way, by: retrying failed HTTP
+requests (retry); applying flexible time policies (timeout); and
+sending concurrent HTTP requests to the same endpoint (racing). 
+
+### 4. Is httpx the best option for me?
+
+If you are building a web application in Go then yes, we think so!
+
+Consult the [Alternative HTTP client libraries](#8-alternative-http-client-libraries)
+section to how httpx compares with other GoLang HTTP client libraries.
+
+## 2. Getting started
 
 ### 1. What Go versions are supported?
 
@@ -13,105 +50,410 @@ Package httpx works on Go 1.13 and higher.
 go get -u github.com/gogama/httpx
 ```
 
-## B. Alternative libraries
+## 3. Retry FAQ
 
-### 1. What alternatives to httpx are out there?
+TODO. Put sub-TOC. here.
 
-Alternatives include:
+### 1. What is the default retry behavior?
 
-- [heimdall](https://github.com/gojek/heimdall) - Adds a retrying client with
-  hystrix-style circuit breakers and a few event hooks for basic plugin support.
-- [rehttp](https://github.com/PuerkitoBio/rehttp) - Adds a retrying `http.RoundTripper`
-  for `http.Client`, supports configurable retry policies.
-- [httpretry](https://github.com/ybbus/httpretry) - Adds a retrying `http.RoundTripper`
-  for `http.Client`, supports configurable retry policies.
-- [go-http-retry](https://github.com/tescherm/go-http-retry) - Adds a retrying
-  `http.RoundTripper` for `http.Client`, supports configurable retry policies.
-- [go-retryablehttp](https://github.com/hashicorp/go-retryablehttp) - Adds a retrying
-  client, `retryablehttp.Client` with configurable retry policies, a few event hooks,
-  and a way to transmorgrify the client into an `http.RoundTripper` so it can be
-  wrapped in an `http.Client`.
+If you use a zero-value `&httpx.Client{}` or set its `RetryPolicy`
+member to `nil`, then a sensible default retry policy is applied.
 
-#### 2. Why use httpx over the alternatives?
+The default policy is called `retry.DefaultPolicy`. Consult the GoDoc
+for more detailed information.
 
-The alternative libraries tend to be missing three features that are fundamental
-to providing top-tier HTTP reliability:
+### 2. How do I set the retry backoff period?
 
-1. **Retry on failed response body read**. Because the response body is an
-   integral part of an HTTP response, httpx reads the whole body before doing a
-   retry check, so the retry policy has access to the response body and any error
-   encountered while reading it. Other frameworks run their retry checks before
-   considering the response body.
-2. **Set per attempt timeouts**. Cancelling and retrying slow requests can be a
-   powerful way to gain incremental reliability, so httpx supports setting
-   timeouts on individual request attempts (httpx "attempt timeout"). Other
-   frameworks use a single `http.Request` with some form of body-rewinding, and
-   can only set a single global timeout on the whole transaction (httpx "plan
-   timeout").
+Provide an instance of the `retry.Waiter` interface to `retry.NewPolicy`.
 
-As well, httpx has the following differentiating features which add value on top
-of its solid fundamental reliability:
+- For constant backoff, use the built-in waiter constructor
+`retry.NewFixedWaiter`.
+- For exponential backoff with optional jitter, use the built-in waiter
+constructor `retry.NewExpWaiter`.
+- For custom behavior, provide your own waiter implementation.
 
-1. **Better transience classification**. Package `transient` classifies errors
-   based on whether they are likely to be transient from an HTTP perspective,
-   limiting false negative and false positive retries when a request attempt
-   ends in error. (Lightweight and reusable standalone, too!) Other frameworks
-   tend to be more *ad hoc* in their classification.
-2. **Event handlers**. httpx provides a comprehensive set of event hooks,
-   allowing custom extensions and plugins.
-3. **Adaptive timeouts**. httpx supports flexible timeout policies, including
-   adaptive timeouts that adapt based on whether previous request attempts
-   timed out.
+### 3. How do I specify when to retry?
 
-## C. Feature FAQs
+Provide an instance of the `retry.Decider` interface to `retry.NewPolicy`.
 
-### 1. Why does httpx pre-buffer request bodies and response bodies?
+You can assemble a custom decider by combining built-in decider functions
+using the `And` and `Or` operators, for example:
 
-The reasons for pre-buffering request bodies and response bodies are
-slightly different.
+```go
+myDecider := retry.Times(10).And(
+	retry.StatusCode(503).Or(
+		retry.TransientErr)
+	)
+```
 
-For *requests*, the issue is that for the retry logic to work, requests need to
-be repeatable, which means httpx can't consume a one-time request body stream
-like the Go standard HTTP client does. (Of course httpx could consume a function
-that returns an `io.Reader`, but this would push more complexity onto the
-programmer when the goal is to simplify.)
+For custom behavior, provide your own decider implementation.
 
-For *responses*, the primary issue is that if the response body is important,
-then you *have* to be able to read the response *reliably*. Since a transient
-error like  a client-side timeout or connection reset can happen after the
-server sends back  the response headers, but before the response body is fully
-received, the only way  to determine if the response was completed successfully
-is to read the entire body without error.
+### 4. Can I make my own custom retry policy? 
 
-A secondary issue for responses is that some web services include information
-about the retryability of the request in the response body itself. For example,
-Esri's ArcGIS REST API returns errors to the client by sending back an
-HTTP 200/OK response header followed by a response body containing a JSON object
-that indicates the "true" HTTP status code, for example 503. If you want to
-retry one of these errors, you need to read and parse the response body.
-Response body buffering makes this possible.
+If your retry decision and backoff computation are uncoupled, write your
+own `retry.Decider` or `retry.Waiter` or both and combine them using
+`retry.NewPolicy`. If they are coupled, implement the `retry.Policy`
+interface.
 
-Thus, in order to be able to retry request attempts where the response body was
-not fully received, httpx reads and buffers the entire response body. Apart
-from allowing more reliable HTTP transactions, this has the additional benefit
-of slightly simplifying the programmer's life, since `httpx.Client` returns a
-`[]byte` containing the entire response body, and ensures the response body
-reader is drained and closed so the underlying HTTP connection can be reused.
+### 5. How do I turn off retry altogether
 
-### 2. What are event handlers for?
+Use the built-in policy `retry.Never`.
 
-Event handlers let you mix in your own logic at designated plug points in the
-HTTP request plan execution logic.
+### 6. Can a retry policy modify the request execution?
+
+No. The retry policy must treat the execution as immutable, with one
+exception: if the retry policy needs to save state, it may use the
+execution's `SetValue` method.
+
+### 7. What goroutine executes the retry policy methods?
+
+The retry policy is always called from the goroutine which called the
+request execution method (`Do`, `Get`, `Post`, *etc.*) on
+`httpx.Client`. This is always true, even when the retry policy is
+being used alongside the racing feature.
+
+## 4. Timeouts FAQ
+
+### 1. What is the default timeout behavior?
+
+If you use a zero-value `&httpx.Client{}` or set its `TimeoutPolicy`
+member to `nil`, then a sensible default timeout policy is applied.
+
+The default policy is called `timeout.DefaultPolicy`. Consult the GoDoc
+for more detailed information.
+
+### 2. How do I set a constant timeout?
+
+Use the built-in timeout policy constructor `timeout.Fixed`.
+
+### 3. What is an adaptive timeout?
+
+Instead of being a static or constant value, an adaptive timeout changes
+based on whether the previous request attempt timed out.
+
+### 4. Why would I use an adaptive timeout?
+
+An adaptive timeout may be helpful in smoothing over a rough patch of
+higher response latencies from a downstream dependency.
+
+By setting a longer timeout value when a previous request attempt timed
+out, you can set tight initial timeouts while being confident you won't
+brown out  the dependency or suffer an availability drop if the
+dependency goes through a slow period.
+
+If you are interested in adaptive timeouts, you may also find the
+[racing feature TODO link here]() applies to your use case.
+
+### 5. How do I set an adaptive timeout?
+
+Use the built-in timeout policy constructor `timeout.Adaptive`.
+
+### 6. Can I make my own custom timeout policy?
+
+Of course! Just implement the `timeout.Policy` interface.
+
+### 7. How do I turn off timeouts altogether?
+
+Use the built-in timeout policy `timeout.Infinite`.
+
+### 8. Can a timeout policy modify the request execution?
+
+No. The timeout policy must treat the execution as immutable, with one
+exception: if the timeout policy needs to save state, it may use the
+execution's `SetValue` method.
+
+### 9. What goroutine executes the timeout policy methods?
+
+The timeout policy is always called from the goroutine which called the
+request execution method (`Do`, `Get`, `Post`, *etc.*) on
+`httpx.Client`. This is always true, even when the timeout policy is
+being used alongside the racing feature.
+
+## 5. Racing FAQ (concurrent requests)
+
+### 1. What is racing (concurrent requests)?
+
+Racing means making multiple parallel HTTP request attempts to satisfy
+one logical HTTP request plan, and using the result from the fastest
+attempt (first to complete) as the final HTTP request plan execution
+result.
+
+For example, you send `GET /dogs/german-shepherd` to `pets.com`. You
+haven't received the response after 200ms, so you send a second
+`GET /dogs/german-shepherd` without cancelling the first one. Now the
+first and second request attempts are "racing" each other, and the first
+to complete will satisfy the logical request.
+
+### 2. Why would I use racing?
+
+The use case for racing is similar to the use case for [adaptive
+timeouts TODO link here](): racing concurrent requests can help smooth
+over pockets of high latency from a downstream web service, enabling you
+to get a successful response to your customer more rapidly even when
+your dependency is experiencing transient slowness.
+
+### 3. Does racing have any associated costs or risks?
+
+Before using racing, and when configuring your racing policy, you should
+consider the following factors:
+
+- **Cost**. A racing policy may result in you sending extra requests to
+  the downstream web service. If you pay another business for these
+  requests, your bill may increase. If your downstream dependency is
+  another service in your own organization, the increased traffic may
+  still increase your costs.
+- **Brownout**. A carelessly-designed racing policy may result in a
+  surge in traffic to your downstream dependency at precisely the moment
+  when the dependency is struggling to handle its existing traffic, let
+  alone added load.
+- **Idempotency**. If the operation you are requesting on the remote
+  web service is not idempotent, may not be a good idea to send multiple
+  parallel requests to the service. For non-idempotent requests, do the
+  analysis to determine if racing is right for you.  
+
+Fortunately a well-designed racing policy will not materially increase
+cost or brownout risk (see [TODO: link to circuit breaker]())
+and can be disabled for non-idempotent requests. 
+
+### 4. What is the default racing behavior?
+
+Racing is off by default. If you use the zero-value `httpx.Client`, or
+any `httpx.Client` with a nil racing policy, all HTTP requests attempts
+for a given request execution will be made serially.
+
+### 5. What is a wave?
+
+TODO.
+
+### 6. How do I start parallel requests at fixed intervals?
+
+Use the built-in scheduler constructor `racing.NewStaticScheduler`.
+
+### 7. Can I set a circuit breaker to disable racing?
+
+Yes. Implement the `racing.Starter` interface to allow/deny starting new
+parallel requests.
+
+The built-in constructor `racing.NewThrottleStarter` creates a starter
+which can throttle new racing attempts if too many racing attempts were
+recently started, effectively returning request plan execution to serial
+attempt mode until a cooling-off period has elapsed. This built-in
+starter may already satisfy your circuit-breaking needs.
+
+### 8. When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?
+
+As soon as one request attempt finishes, either due to successfully reading the
+whole response body or due to error, the wave is closed out: no new parallel
+attempts are added in to the wave.
+
+What happens to the other in-flight request attempts within the wave depends on
+the retry policy. See [TODO here link to "How does retry work with the racing feature?"] 
+
+### 9. Can I make my own custom racing policy?
+
+Yes. A racing policy is composed of a concurrent attempt scheduler
+and a concurrent attempt starter. If your scheduling and start functions
+are uncoupled, write your own `racing.Scheduler` or `racing.Starter`
+or both and combine them using `racing.NewPolicy`. If the two functions
+are coupled, implement the `racing.Policy` interface.
+
+### 10. Can a racing policy modify the request execution?
+
+No. The racing policy must treat the execution as immutable, with one
+exception: if the racing policy needs to save state, it may use the
+execution's `SetValue` method.
+
+### 11. How does retry work with the racing feature?
+
+Your retry policy works with racing request attempts in the intuitively
+correct manner, roughly as if the racing attempts had been executed
+serially in the order in which they *ended*.
+
+When a racing request attempt ends, either due to being finished or due to
+error, the retry policy's `Decide` method is called for a retry decision.
+
+Just as in the serial attempt case, a positive retry decision means "keep
+trying". Since other in-flight concurrent attempts also represent tries,
+these in-flight attempts are allowed to finish and tested for retryability
+with `Decide`. If all in-flight attempts in the wave have finished with
+a positive retry decision, `httpx.Client` waits for the time indicated
+by the retry policy's `Wait` method and then starts a new wave.
+
+Again as in the serial case, a negative retry decision means "stop
+trying". As soon as one attempt finishes with a negative retry decision, 
+all other in-flight attempts in the race are cancelled with the special
+error value `racing.Redundant` and attempt that finished with the negative
+retry decision represents the final state of the HTTP request plan
+execution.
+
+### 12. How do timeouts work with the racing feature?
+
+Your timeout policy works with racing request attempts exactly as it
+does in the case of serially executed request attempts. The timeout
+policy is called once before each request attempt, to determine the
+timeout applicable to that attempt. This is true whether or not the
+attempt is racing other concurrent attempts.
+
+### 13. How do event handlers work with the racing feature?
+
+Event handlers work the same way whether racing is enabled or not.
+
+Event handlers are always called from the goroutine which called the
+request execution method (`Do`, `Get`, `Post`, *etc.*) on `httpx.Client`.
+
+Event handlers therefore execute serially even when request attempts are
+executing concurrently. Events for different attempts racing in the same
+wave may be interleaved, and their order is generally undefined, but the
+following invariants are true:
+
+- The `BeforeAttempt` handler for attempt `i` always executes before the
+  `BeforeAttempt` handler for attempt `i+1`.
+- The relative order of events for attempt `i` is always the same:
+  `BeforeAttempt`, `BeforeReadBody` (optional), `AfterAttemptTimeout`
+  (optional), `AfterAttempt`.
+
+### 14. What goroutine executes the racing policy methods?
+
+The racing policy is always called from the goroutine which called the
+request execution method (`Do`, `Get`, `Post`, *etc.*) on
+`httpx.Client`.
+
+## 6. Plugins (event handlers)
+
+### 1. What are event handlers useful for?
+
+Event handlers let you mix in your own logic at designated plug points
+in the HTTP request plan execution logic.
 
 Examples of handlers one might implement:
 
-- an OAuth signer that ensures an up-to-date signature on each retry;
+- an OAuth decorator that ensures a non-expired bearer token header on
+  each request attempt, including retries;
 - a logging component that logs request attempts, outcomes, and timings;
 - a metering component that sends detailed metrics to Amazon CloudWatch,
   AWS X-Ray, Azure Monitor, or the like;
 - a response post-processor that unmarshals the response body so heavyweight
   unmarshaling does not need to be done separately by the retry policy and
   the end consumer.
+
+### 2. How do I add an event handler to an `httpx.Client`?
+
+Add a handler group to your `httpx.Client`, if it doesn't have one
+already, and push your event handler into the handler group.
+
+```go
+func main() {
+	client := &httpx.Client{
+		Handlers: &httpx.HandlerGroup{},
+	}
+	client.Handlers.PushBack(httpx.BeforeExecutionStart, httpx.HandlerFunc(myHandler))
+	
+	e, err := client.Get("https://example.com")
+	...
+}
+
+func myHandler(evt httpx.Event, e *httpx.Execution) {
+	fmt.Println("Hello from an event handler!")
+}
+```
+
+### 3. What event handlers are available? 
+
+- `BeforeExecutionStart` - once per execution, always
+- `BeforeAttempt` - once per attempt, always
+- `BeforeReadBody` - once per attempt, only if response headers were
+  received without error
+- `AfterAttemptTimeout` - once per attempt, only if the attempt timed
+  out
+- `AfterAttempt` - once per attempt, always
+- `AfterPlanTimeout` - once per execution, only if the request plan
+  context timed out, distinct from an individual attempt timeout
+- `AfterExecutionEnd` - once per execution, always
+
+### 4. Can an event handler modify the request execution?
+
+Event handlers may change the execution in the ways listed below, but
+must otherwise treat the execution as immutable.
+
+- An event handler may always use `SetValue` to store a value into the
+  execution.
+- The `BeforeExecutionStart` event handler may replace the execution
+  plan with an equivalent plan. The new plan's context must be equal
+  to, or a child of, the old plan's context.
+- The `BeforeAttempt` event handler may replace the current attempt's
+  request with an equivalent request. The new request's context must be
+  equal to, or a child of, the old request's context.
+- The `BeforeReadBody` event handler may 
+
+### 5. What are plugins?
+
+A plugin is a group of one or more event handlers working together to
+add a feature to `httpx.Client`.
+
+### 6. Are there any pre-made plugins I can leverage?
+
+Yes. See the [Plugins](README.md#Plugins) section in [README.md](README.md). 
+
+### 7. What goroutine executes the event handler methods?
+
+Event handlers are called from the goroutine which called the request
+execution method (`Do`, `Get`, `Post`, *etc.*) on `httpx.Client`. This
+is always true, even when the timeout policy is being used alongside the
+racing feature.
+
+## G. HTTPDoer Configuration
+
+### 1. What is the default `HTTPDoer` used by an `httpx.Client`? 
+
+An `httpx.Client` with a `nil` valued `HTTPDoer` (including the zero value
+client) uses `http.DefaultClient` as its `HTTPDoer`.
+
+### 2. I use `http.Client` as my `HTTPDoer`. How do I configure it?
+
+Configure it as you normally would, bearing in mind that it is usually
+preferable not to set any timeouts on the underlying `http.Client` (see
+below).
+
+### 3. What client-side timeouts should I use on `http.Client`?
+
+If using the Go standard `http.Client` as the `HTTPDoer`, it is preferable not
+to set any client-side timeouts on your underlying `http.Client` unless you set
+the `httpx.Client` timeout policy to `timeout.Infinite`.
+
+To be slightly more nuanced, you may leverage any timeouts on the underlying
+`http.Client`, including on its transport, *provided* you are aware of how they
+will play with your timeout and retry policies. For example, it may make sense
+to set the dial or TCP connect timeouts on the transport, but if you do so, you
+will likely want to have them set to a lower value than the lowest timeout your
+httpx timeout policy can return.
+
+## 7. Detailed feature FAQ
+
+### 1. What is a request plan?
+
+A `request.Plan` is one of the two core data types in httpx (alongside
+`request.Execution`). A request plan declares a plan for executing an
+HTTP transaction reliably, using multiple attempts (via retry, racing,
+or both) if necessary.
+
+A request plan is analogous to Go's `http.Request` and in fact has a
+very similar structure. Notable differences include that `request.Plan`
+removes server-side fields and fully buffers the request body into a
+`[]byte`.
+
+### 2. What is a request execution?
+
+A `request.Execution` is the other core data type in httpx (along with
+`request.Plan`). A request execution represents the intermediate state
+involved in executing the request plan, and the final state after the
+request plan execution has ended.
+
+During the execution of a request plan initiated by a call to one of
+the executing methods (`Do`, `Get`, `Post`, *etc.*) from `httpx.Client`,
+the `request.Execution` representing execution state is passed to all
+policy methods (retry, timeout, racing) and all event handler methods.
+This allows policies and event handlers to act make decisions according
+to the detailed and current execution state...
 
 ### 3. Why don't request plans support...?
 
@@ -125,16 +467,73 @@ The `request.Plan` structure is equivalent to the Go standard library
 - the `Trailer` field, because trailers make less sense when the entire request
   body is buffered, and trailer support in servers is in any event uncommon.
 
-### 4. Can I turn off request/response buffering?
+### 4. Why does httpx consume pre-buffered request bodies?
 
-Yes. While we don't recommend it, as it won't be useful for most web service
-interactions, httpx can be used without either request or response buffering.
+Requests are buffered to allow retry and racing logic to work correctly.
 
-- **Request**. To turn off request buffering, set a `nil` request body on the
-  request plan, and write a handler for the `httpx.BeforeAttempt` event which
-  sets the `Body`, `GetBody`, and `ContentLength` fields on the execution's
-  request.
-- **Response**. To turn off response buffering, write a handler for the
-  `httpx.BeforeReadBody` event which replaces the body reader on the execution's
-  response with a no-op reader. In this case, your code is responsible for
-  draining and closing the original reader to avoid leaking the connection.
+For the retry logic to work, requests need to be repeatable, which means httpx
+can't consume a one-time request body stream like the Go standard HTTP client
+does. (Of course httpx could consume a function that returns an `io.Reader`,
+but this would push more complexity onto the programmer when the goal is to
+simplify.)
+
+### 5. Why does httpx produce pre-buffered response bodies?
+
+- **Retryable errors can happen while reading the response body**. If
+  the retry framework doesn't read the whole response body, it can't
+  assist by retrying errors occurring during body read. This is a major
+  flaw in other HTTP retry frameworks written in Go since they require
+  the user to read the body outside the retry loop.
+
+- **Response body may contain information relevant to a retry
+  decision.** For example, Esri's ArcGIS include web service always
+  returns an HTTP response header containing status HTTP 200 OK. The
+  response body, however, may be a JSON error object with its own status
+  code indicating retryability. The entire response body must be read to
+  make a correct retry decision.
+
+### 6. Can I turn off request body pre-buffering?
+
+To turn off request buffering, set a `nil` request body on the request
+plan, and write a handler for the `httpx.BeforeAttempt` event which sets
+the `Body`, `GetBody`, and `ContentLength` fields on the execution's
+request.
+
+### 7. Can I turn off response body pre-buffering?
+
+To turn off response buffering, write a handler for the
+`httpx.BeforeReadBody` event which replaces the response body reader on
+the execution's response object it with a no-op reader. Your code is
+responsible for draining and closing the original reader to avoid
+leaking the connection.
+
+### 8. Can I wrap `httpx.Client` with a Go standard `http.Client`?
+
+You *can* make an `httpx.Client` look like a standard GoLang HTTP
+client, if absolutely necessary, but we *do not recommend it* and don't
+provide an out-of-the-box implementation. Instead, we recommend building
+your code around single-method interfaces like `httpx.Doer`.
+
+The stock technique for converting to an `http.Client` is to wrap the
+target (`httpx.Client`) in an implementation of the `http.RoundTripper`
+interface and then use the `RoundTripper` as the `Transport` for the
+`http.Client`. The advantage of doing this is it's relatively simple and
+allows you to avoid changing code that consumes `*http.Client`. The
+disadvantages are that it explicitly violates just about every promise
+made in the documented `RoundTripper` interface contract: "a single
+HTTP transaction", "should not attempt to interpret the request", *etc.*
+
+## 8. Alternative HTTP client libraries
+
+The feature matrix below shows how httpx stacks up against other common
+HTTP retry libraries for Go:
+
+| | httpx | [heimdall](https://github.com/gojek/heimdall) | [rehttp](https://github.com/PuerkitoBio/rehttp) | [httpretry](https://github.com/ybbus/httpretry) | [go-http-retry](https://github.com/tescherm/go-http-retry) | [go-retryablehttp](https://github.com/hashicorp/go-retryablehttp) |
+|-|-|-|-|-|-|-|
+| Basic retry | ✅ |
+| Response buffering | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Basic event handlers/plugins | ✅ |
+| Advanced event handlers/plugins | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Accurate transient error classification | ✅ |
+| Flexible and adaptive timeouts | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Racing concurrent requests | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
