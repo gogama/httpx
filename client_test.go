@@ -13,6 +13,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -1022,6 +1024,7 @@ func testClientRacing(t *testing.T) {
 	t.Run("cancel redundant", testClientRacingCancelRedundant)
 	t.Run("plan cancel in wave", testRacingPlanCancelDuringWaveLoop)
 	t.Run("panic", testClientRacingPanic)
+	t.Run("multiple waves", testClientRacingMultipleWaves)
 }
 
 func testClientRacingNeverStart(t *testing.T) {
@@ -1339,11 +1342,20 @@ func testClientRacingPanic(t *testing.T) {
 	N := 10 // Number of attempts to start before panicking
 
 	// Function used to setup the HTTPDoer to block until N is reached then
-	// return a response.
-	setupHTTPDoerBlock := func(_ *testing.T, doer *mockHTTPDoer, ch <-chan time.Time) {
+	// return an OK response.
+	setupHTTPDoerBlockOK := func(_ *testing.T, doer *mockHTTPDoer, ch <-chan time.Time) {
 		doer.On("Do", mock.AnythingOfType("*http.Request")).
 			WaitUntil(ch).
 			Return(&http.Response{StatusCode: 218, Body: ioutil.NopCloser(strings.NewReader("This is fine."))}, nil).
+			Times(N)
+	}
+
+	// Function used to setup the HTTPDoer to block until N is reached then
+	// return an error response.
+	setupHTTPDoerBlockError := func(_ *testing.T, doer *mockHTTPDoer, ch <-chan time.Time) {
+		doer.On("Do", mock.AnythingOfType("*http.Request")).
+			WaitUntil(ch).
+			Return(nil, errors.New("exptecto erroneum")).
 			Times(N)
 	}
 
@@ -1387,26 +1399,26 @@ func testClientRacingPanic(t *testing.T) {
 		panicVal          string
 	}{
 		{
-			name:              "BeforeReadBody handler",
-			setupHTTPDoer:     setupHTTPDoerBlock,
+			name:              "panic in BeforeReadBody handler",
+			setupHTTPDoer:     setupHTTPDoerBlockOK,
 			setupEventHandler: setupEventHandlerPanic,
 			event:             BeforeReadBody,
 			panicVal:          "event handler panic - BeforeReadBody!",
 		},
 		{
-			name:              "AfterAttempt handler",
-			setupHTTPDoer:     setupHTTPDoerBlock,
+			name:              "panic in AfterAttempt handler",
+			setupHTTPDoer:     setupHTTPDoerBlockError,
 			setupEventHandler: setupEventHandlerPanic,
 			event:             AfterAttempt,
 			panicVal:          "event handler panic - AfterAttempt!",
 		},
 		{
-			name:          "send",
+			name:          "panic on send",
 			setupHTTPDoer: setupHTTPDoerSendPanic,
 			panicVal:      "mock HTTP doer panic!",
 		},
 		{
-			name:          "read body",
+			name:          "panic on read body",
 			setupHTTPDoer: setupHTTPDoerReadPanic,
 			panicVal:      "mock body panic!",
 		},
@@ -1429,7 +1441,7 @@ func testClientRacingPanic(t *testing.T) {
 				Handlers:      &HandlerGroup{},
 			}
 			showtime := make(chan time.Time, N)
-			//			defer close(showtime)
+			defer close(showtime)
 			testCase.setupHTTPDoer(t, doer, showtime)
 			cl.Handlers.mock(BeforeAttempt).
 				On("Handle", BeforeAttempt, mock.MatchedBy(func(e *request.Execution) bool {
@@ -1458,6 +1470,104 @@ func testClientRacingPanic(t *testing.T) {
 			cl.Handlers.assertExpectations(t)
 		})
 	}
+}
+
+func testClientRacingMultipleWaves(t *testing.T) {
+	// The purpose of this test case is to validate the behavior of the
+	// client across multiple waves.
+
+	numWaves := 10             // Total number of waves to allow.
+	minRacing := 10            // Minimum number of attempts to race in one wave.
+	maxRacing := 5 * minRacing // HEURISTIC ESTIMATE. Upper bound on number of attempts per wave.
+
+	// In the first (numWaves-1) waves, all the attempts end with a
+	// positive retry decision. This means that as soon as one attempt
+	// finishes, the wave is closed and no new attempts are added; but
+	// every attempt is allowed to finish. In the last wave, one of the
+	// attempts ends with a negative retry decision, causing the other
+	// requests to be cancelled as redundant.
+
+	doer := newMockHTTPDoer(t)
+	retryPolicy := newMockRetryPolicy(t)
+	racingPolicy := newMockRacingPolicy(t)
+	cl := &Client{
+		HTTPDoer:      doer,
+		TimeoutPolicy: timeout.Infinite,
+		RetryPolicy:   retryPolicy,
+		RacingPolicy:  racingPolicy,
+		Handlers:      &HandlerGroup{},
+	}
+	var showtime *chan struct{}
+	curWave := -1
+	curWaveFirstAttempt := -1
+	callOrder := callOrderMatcher{}
+	for i := 0; i < numWaves*maxRacing; i++ {
+		call := int32(i)
+		doer.
+			On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(call) })).
+			Run(func(_ mock.Arguments) { <-*showtime }).
+			Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader(fmt.Sprintf("foo[%05d]", call)))}, nil)
+	}
+	retryPolicy.
+		On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
+			return e.Wave < numWaves-1 || (e.Wave == numWaves-1 && e.Attempt != curWaveFirstAttempt+minRacing-1)
+		})).
+		Return(true)
+	retryPolicy.
+		On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
+			return e.Wave == numWaves-1 && e.Attempt == curWaveFirstAttempt+minRacing-1
+		})).
+		Return(false).
+		Once()
+	retryPolicy.
+		On("Wait", mock.AnythingOfType("*request.Execution")).
+		Return(time.Microsecond)
+	racingPolicy.On("Schedule", mock.AnythingOfType("*request.Execution")).
+		Return(time.Microsecond)
+	racingPolicy.On("Start", mock.AnythingOfType("*request.Execution")).
+		Return(true)
+	cl.Handlers.mock(BeforeAttempt).
+		On("Handle", BeforeAttempt, mock.AnythingOfType("*request.Execution")).
+		Run(func(args mock.Arguments) {
+			e := args.Get(1).(*request.Execution)
+			// Handle start of new wave, including creating a new unblock/
+			// block channel for the wave.
+			if e.Wave > curWave {
+				curWave = e.Wave
+				curWaveFirstAttempt = e.Attempt
+				ch := make(chan struct{}, minRacing)
+				showtime = &ch
+			}
+			// If minimum number of attempts in the wave have happened,
+			// unblock the wave.
+			if e.Attempt == curWaveFirstAttempt+minRacing-1 {
+				for i := 0; i < minRacing; i++ {
+					*showtime <- struct{}{}
+				}
+			} else if e.Attempt >= curWaveFirstAttempt+minRacing {
+				*showtime <- struct{}{}
+			}
+		})
+
+	e, err := cl.Get("test")
+
+	doer.AssertExpectations(t)
+	retryPolicy.AssertExpectations(t)
+	racingPolicy.AssertExpectations(t)
+	cl.Handlers.assertExpectations(t)
+	require.NotNil(t, e)
+	assert.NoError(t, err)
+	assert.NoError(t, e.Err)
+	assert.Equal(t, 200, e.StatusCode())
+	assert.Regexp(t, regexp.MustCompile(`foo\[\d{5}]`), string(e.Body))
+	require.Len(t, e.Body, 10)
+	call, err := strconv.Atoi(string(e.Body[5:9]))
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, call, (numWaves-1)*minRacing)
+	assert.Equal(t, e.Wave, numWaves-1)
+	assert.GreaterOrEqual(t, e.Attempt, (numWaves-1)*minRacing)
+	assert.GreaterOrEqual(t, e.Attempt, curWaveFirstAttempt)
+	assert.Less(t, e.Attempt, numWaves*maxRacing)
 }
 
 type mockHTTPDoer struct {
