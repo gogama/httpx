@@ -278,7 +278,7 @@ func testClientAttemptTimeout(t *testing.T) {
 				t.Run(serverName(server), func(t *testing.T) {
 					cl := &Client{
 						HTTPDoer:      server.Client(),
-						TimeoutPolicy: timeout.Fixed(1 * time.Millisecond),
+						TimeoutPolicy: timeout.Fixed(250 * time.Microsecond),
 						RetryPolicy:   retry.Never,
 						Handlers:      &HandlerGroup{},
 					}
@@ -305,7 +305,8 @@ func testClientAttemptTimeout(t *testing.T) {
 							{Pause: 100 * time.Millisecond, Data: []byte("And here is your second and longer chunk.")},
 							{Pause: 200 * time.Millisecond, Data: []byte("And here is your third and yet longer chunk.")},
 							{Pause: 400 * time.Millisecond, Data: []byte("Et voilà, un quatrième morceau qui est encore plus longue.")},
-							{Pause: 800 * time.Millisecond, Data: []byte("And fifth, and last (but not least) is the longest chunk of all.")},
+							{Pause: 800 * time.Millisecond, Data: []byte(`Fifth, what is, one might say, the penultimate piece of the "protoplasm" of the response, longer than the previous one.`)},
+							{Pause: 1600 * time.Millisecond, Data: []byte("And sixth, and last (but not least) is the longest chunk of all. In order to make it so, evidently, we need to pad it with an additional nonsense sentence such as this one.")},
 						},
 					}).toPlan(ctx, "POST", server)
 					e, err := cl.Do(p)
@@ -333,22 +334,6 @@ func testClientAttemptTimeout(t *testing.T) {
 					assert.Equal(t, e.AttemptTimeouts, 1)
 					assert.Equal(t, 0, e.Racing)
 					assert.Equal(t, 0, e.Wave)
-					// FIXME: With VERY low probability (meaning, about 1 in every 25K
-					//        executions), the "from attempt deadline" variant of this
-					//        test case fails, and it is now the ONLY test case that has
-					//        any reliability problems even after 100K iterations.
-					//
-					//        The things that are failing are the timeout detection.
-					//        The expectation of AfterAttemptTimeout on the mock is not
-					//        met, and then the assertion that the error is classified
-					//        as a timeout (line 319 currently) and the assertion that
-					//        the execution attempt timeout counter is 1, not 0 (line
-					//        333 currently) fail.
-					//
-					//        Based on how reliable the "from plan timeout" version now
-					//        of this test now is, I tend to think the solution is to
-					//        reduce the timeout policy to 10 microseconds and, maybe,
-					//        add one more 1600ms super chunk to the body.
 				})
 			}
 		})
