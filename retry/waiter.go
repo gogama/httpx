@@ -33,6 +33,20 @@ type Waiter interface {
 // maximum wait of 1 second.
 var DefaultWaiter = NewExpWaiter(50*time.Millisecond, 1*time.Second, time.Now())
 
+// NewFixedWaiter constructs a Waiter that always returns the given
+// duration.
+//
+// Use NewFixedWaiter to obtain a constant retry backoff.
+func NewFixedWaiter(d time.Duration) Waiter {
+	return fixedWaiter(d)
+}
+
+type fixedWaiter time.Duration
+
+func (w fixedWaiter) Wait(_ *request.Execution) time.Duration {
+	return time.Duration(w)
+}
+
 // NewExpWaiter constructs a Waiter implementing an exponential backoff
 // formula with optional jitter.
 //

@@ -38,6 +38,30 @@ func TestDefaultWaiter(t *testing.T) {
 	}
 }
 
+func TestNewFixedWaiter(t *testing.T) {
+	testCases := []time.Duration{
+		0,
+		time.Nanosecond,
+		time.Microsecond,
+		time.Millisecond,
+		time.Second,
+		2 * time.Second,
+		time.Minute,
+		time.Hour,
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.String(), func(t *testing.T) {
+			w := NewFixedWaiter(testCase)
+			for i := 0; i < 10; i++ {
+				t.Run(fmt.Sprintf("iteration %d", i), func(t *testing.T) {
+					assert.Equal(t, testCase, w.Wait(&request.Execution{Attempt: i}))
+				})
+			}
+		})
+	}
+}
+
 func TestNewExpWaiter(t *testing.T) {
 	base, max := 1*time.Millisecond, 1*time.Hour
 	t.Run("invalid base", func(t *testing.T) {
