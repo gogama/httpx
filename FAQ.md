@@ -10,9 +10,14 @@ Contents:
 5. [Racing FAQ (concurrent requests)](#5-racing-faq-concurrent-requests)
 6. [Plugins (event handlers)](#6-plugins-event-handlers)
 7. [Detailed feature FAQ](#7-detailed-feature-faq)
-8. [Alternative HTTP client libraries](#8-alternative-http-client-libraries) 
+8. [Alternative HTTP client libraries](#8-alternative-http-client-libraries)
 
 ## 1. Why use httpx?
+
+1. [What is httpx?](#1-what-is-httpx)
+2. [Who is the target user?](#2-who-is-the-target-user)
+3. [What does httpx do?](#3-what-does-httpx-do)
+4. [Is httpx the best option for me?](#4-is-httpx-the-best-option-for-me)
 
 ### 1. What is httpx?
 
@@ -29,7 +34,7 @@ servers.
 Package httpx allows web applications written in Go to invoke their
 dependencies over HTTP in a reliable way, by: retrying failed HTTP
 requests (retry); applying flexible time policies (timeout); and
-sending concurrent HTTP requests to the same endpoint (racing). 
+sending concurrent HTTP requests to the same endpoint (racing).
 
 ### 4. Is httpx the best option for me?
 
@@ -39,6 +44,9 @@ Consult the [Alternative HTTP client libraries](#8-alternative-http-client-libra
 section to how httpx compares with other GoLang HTTP client libraries.
 
 ## 2. Getting started
+
+1. [What Go versions are supported?](#1-what-go-versions-are-supported)
+2. [How do I update to the latest httpx version?](#2-how-do-i-update-to-the-latest-httpx-version)
 
 ### 1. What Go versions are supported?
 
@@ -52,7 +60,13 @@ go get -u github.com/gogama/httpx
 
 ## 3. Retry FAQ
 
-TODO. Put sub-TOC. here.
+1. [What is the default retry behavior?](#1-what-is-the-default-retry-behavior)
+2. [How do I set the retry backoff period?](#2-how-do-i-set-the-retry-backoff-period)
+3. [How do I specify when to retry?](#3-how-do-i-specify-when-to-retry)
+4. [Can I make my own custom retry policy?](#4-can-i-make-my-own-custom-retry-policy)
+5. [How do I turn off retry altogether?](#5-how-do-i-turn-off-retry-altogether)
+6. [Can a retry policy modify the request execution?](#6-can-a-retry-policy-modify-the-request-execution)
+7. [What goroutine executes the retry policy methods?](#7-what-goroutine-executes-the-retry-policy-methods)
 
 ### 1. What is the default retry behavior?
 
@@ -88,14 +102,14 @@ myDecider := retry.Times(10).And(
 
 For custom behavior, provide your own decider implementation.
 
-### 4. Can I make my own custom retry policy? 
+### 4. Can I make my own custom retry policy?
 
 If your retry decision and backoff computation are uncoupled, write your
 own `retry.Decider` or `retry.Waiter` or both and combine them using
 `retry.NewPolicy`. If they are coupled, implement the `retry.Policy`
 interface.
 
-### 5. How do I turn off retry altogether
+### 5. How do I turn off retry altogether?
 
 Use the built-in policy `retry.Never`.
 
@@ -113,6 +127,16 @@ request execution method (`Do`, `Get`, `Post`, *etc.*) on
 being used alongside the racing feature.
 
 ## 4. Timeouts FAQ
+
+1. [What is the default timeout behavior?](#1-what-is-the-default-timeout-behavior)
+2. [How do I set a constant timeout?](#2-how-do-i-set-a-constant-timeout)
+3. [What is an adaptive timeout?](#3-what-is-an-adaptive-timeout)
+4. [Why would I use an adaptive timeout?](#4-why-would-i-use-an-adaptive-timeout)
+5. [How do I set an adaptive timeout?](#5-how-do-i-set-an-adaptive-timeout)
+6. [Can I make my own custom timeout policy?](#6-can-i-make-my-own-custom-timeout-policy)
+7. [How do I turn off timeouts?](#7-how-do-i-turn-off-timeouts)
+8. [Can a timeout policy modify the request execution?](#8-can-a-timeout-policy-modify-the-request-execution)
+9. [What goroutine executes the timeout policy methods?](#9-what-goroutine-executes-the-timeout-policy-methods)
 
 ### 1. What is the default timeout behavior?
 
@@ -138,11 +162,12 @@ higher response latencies from a downstream dependency.
 
 By setting a longer timeout value when a previous request attempt timed
 out, you can set tight initial timeouts while being confident you won't
-brown out  the dependency or suffer an availability drop if the
+brown out the dependency or suffer an availability drop if the
 dependency goes through a slow period.
 
 If you are interested in adaptive timeouts, you may also find the
-[racing feature TODO link here]() applies to your use case.
+[racing feature](#5-racing-faq-concurrent-requests) applies to your use
+case.
 
 ### 5. How do I set an adaptive timeout?
 
@@ -152,7 +177,7 @@ Use the built-in timeout policy constructor `timeout.Adaptive`.
 
 Of course! Just implement the `timeout.Policy` interface.
 
-### 7. How do I turn off timeouts altogether?
+### 7. How do I turn off timeouts?
 
 Use the built-in timeout policy `timeout.Infinite`.
 
@@ -171,6 +196,21 @@ being used alongside the racing feature.
 
 ## 5. Racing FAQ (concurrent requests)
 
+1. [What is racing (concurrent requests)?](#1-what-is-racing-concurrent-requests)
+2. [Why would I use racing?](#2-why-would-i-use-racing)
+3. [Does racing have any associated costs or risks?](#3-does-racing-have-any-associated-costs-or-risks)
+4. [What is the default racing behavior?](#4-what-is-the-default-racing-behavior)
+5. [What is a wave?](#5-what-is-a-wave)
+6. [When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?](#6-when-an-attempt-finishes-within-a-wave-what-happens-to-the-other-in-flight-concurrent-attempts)
+7. [How do I start parallel requests at predetermined intervals?](#7-how-do-i-start-parallel-requests-at-predetermined-intervals)
+8. [Can I set a circuit breaker to disable racing?](#8-can-i-set-a-circuit-breaker-to-disable-racing)
+9. [Can I make my own custom racing policy?](#9-can-i-make-my-own-custom-racing-policy)
+10. [Can a racing policy modify the request execution?](#10-can-a-racing-policy-modify-the-request-execution)
+11. [How does retry work with the racing feature?](#11-how-does-retry-work-with-the-racing-feature)
+12. [How do timeouts work with the racing feature?](#12-how-do-timeouts-work-with-the-racing-feature)
+13. [How do event handlers work with the racing feature?](#13-how-do-event-handlers-work-with-the-racing-feature)
+14. [What goroutine executes the racing policy methods?](#14-what-goroutine-executes-the-racing-policy-methods)
+
 ### 1. What is racing (concurrent requests)?
 
 Racing means making multiple parallel HTTP request attempts to satisfy
@@ -187,10 +227,11 @@ to complete will satisfy the logical request.
 ### 2. Why would I use racing?
 
 The use case for racing is similar to the use case for [adaptive
-timeouts TODO link here](): racing concurrent requests can help smooth
-over pockets of high latency from a downstream web service, enabling you
-to get a successful response to your customer more rapidly even when
-your dependency is experiencing transient slowness.
+timeouts](#4-why-would-i-use-an-adaptive-timeout): racing concurrent
+requests can help smooth over pockets of high latency from a downstream
+web service, enabling you to get a successful response to your customer
+more rapidly even when your dependency is experiencing transient
+slowness.
 
 ### 3. Does racing have any associated costs or risks?
 
@@ -209,11 +250,12 @@ consider the following factors:
 - **Idempotency**. If the operation you are requesting on the remote
   web service is not idempotent, may not be a good idea to send multiple
   parallel requests to the service. For non-idempotent requests, do the
-  analysis to determine if racing is right for you.  
+  analysis to determine if racing is right for you.
 
 Fortunately a well-designed racing policy will not materially increase
-cost or brownout risk (see [TODO: link to circuit breaker]())
-and can be disabled for non-idempotent requests. 
+cost or brownout risk (see *e.g.*
+[Can I set a circuit breaker to disable racing?](#8-can-i-set-a-circuit-breaker-to-disable-racing))
+and can be disabled for non-idempotent requests.
 
 ### 4. What is the default racing behavior?
 
@@ -223,13 +265,31 @@ for a given request execution will be made serially.
 
 ### 5. What is a wave?
 
-TODO.
+A wave is a group of request attempts that are racing one another
+(overlap in time due to concurrent execution). Since racing is disabled
+unless an explicit racing policy is specified, by default every wave
+contains only one attempt.
 
-### 6. How do I start parallel requests at fixed intervals?
+When racing is enabled, concurrent request attempts are grouped in
+waves. If all request attempts within the wave finish are retryable,
+then client pauses for the wait period determined by the retry policy
+and then begins a new wave.
+
+### 6. When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?
+
+As soon as one request attempt finishes, either due to successfully reading the
+whole response body or due to error, the wave is closed out: no new parallel
+attempts are added in to the wave.
+
+What happens to the other in-flight request attempts within the wave depends on
+the retry policy. See
+[How does retry work with the racing feature?](#11-how-does-retry-work-with-the-racing-feature).
+
+### 7. How do I start parallel requests at predetermined intervals?
 
 Use the built-in scheduler constructor `racing.NewStaticScheduler`.
 
-### 7. Can I set a circuit breaker to disable racing?
+### 8. Can I set a circuit breaker to disable racing?
 
 Yes. Implement the `racing.Starter` interface to allow/deny starting new
 parallel requests.
@@ -239,15 +299,6 @@ which can throttle new racing attempts if too many racing attempts were
 recently started, effectively returning request plan execution to serial
 attempt mode until a cooling-off period has elapsed. This built-in
 starter may already satisfy your circuit-breaking needs.
-
-### 8. When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?
-
-As soon as one request attempt finishes, either due to successfully reading the
-whole response body or due to error, the wave is closed out: no new parallel
-attempts are added in to the wave.
-
-What happens to the other in-flight request attempts within the wave depends on
-the retry policy. See [TODO here link to "How does retry work with the racing feature?"] 
 
 ### 9. Can I make my own custom racing policy?
 
@@ -280,7 +331,7 @@ a positive retry decision, `httpx.Client` waits for the time indicated
 by the retry policy's `Wait` method and then starts a new wave.
 
 Again as in the serial case, a negative retry decision means "stop
-trying". As soon as one attempt finishes with a negative retry decision, 
+trying". As soon as one attempt finishes with a negative retry decision,
 all other in-flight attempts in the race are cancelled with the special
 error value `racing.Redundant` and attempt that finished with the negative
 retry decision represents the final state of the HTTP request plan
@@ -320,6 +371,14 @@ request execution method (`Do`, `Get`, `Post`, *etc.*) on
 
 ## 6. Plugins (event handlers)
 
+1. [What are event handlers useful for?](#1-what-are-event-handlers-useful-for)
+2. [How do I add an event handler to an `httpx.Client`?](#2-how-do-i-add-an-event-handler-to-an-httpxclient)
+3. [What event handlers are available?](#3-what-event-handlers-are-available)
+4. [Can an event handler modify the request execution?](#4-can-an-event-handler-modify-the-request-execution)
+5. [What are plugins?](#5-what-are-plugins)
+6. [Are there any pre-made plugins I can leverage?](#6-are-there-any-pre-made-plugins-i-can-leverage)
+7. [What goroutine executes the event handler methods?](#7-what-goroutine-executes-the-event-handler-methods)
+
 ### 1. What are event handlers useful for?
 
 Event handlers let you mix in your own logic at designated plug points
@@ -347,7 +406,7 @@ func main() {
 		Handlers: &httpx.HandlerGroup{},
 	}
 	client.Handlers.PushBack(httpx.BeforeExecutionStart, httpx.HandlerFunc(myHandler))
-	
+
 	e, err := client.Get("https://example.com")
 	...
 }
@@ -357,7 +416,7 @@ func myHandler(evt httpx.Event, e *httpx.Execution) {
 }
 ```
 
-### 3. What event handlers are available? 
+### 3. What event handlers are available?
 
 - `BeforeExecutionStart` - once per execution, always
 - `BeforeAttempt` - once per attempt, always
@@ -375,15 +434,20 @@ func myHandler(evt httpx.Event, e *httpx.Execution) {
 Event handlers may change the execution in the ways listed below, but
 must otherwise treat the execution as immutable.
 
-- An event handler may always use `SetValue` to store a value into the
+- Any event handler may use `SetValue` to store a value into the
   execution.
 - The `BeforeExecutionStart` event handler may replace the execution
   plan with an equivalent plan. The new plan's context must be equal
   to, or a child of, the old plan's context.
 - The `BeforeAttempt` event handler may replace the current attempt's
-  request with an equivalent request. The new request's context must be
-  equal to, or a child of, the old request's context.
-- The `BeforeReadBody` event handler may 
+  request with an equivalent request or modify the request fields. The
+  new request's context must be equal to, or a child of, the old
+  request's context.
+- The `BeforeReadBody` event handler may replace the current attempt's
+  response with an equivalent response or modify the response fields.
+  If the response body reader is altered, it must be replaced by a new,
+  unclosed, reader *and* the event handler is responsible for ensuring
+  the old body reader is fully read and closed.
 
 ### 5. What are plugins?
 
@@ -392,7 +456,7 @@ add a feature to `httpx.Client`.
 
 ### 6. Are there any pre-made plugins I can leverage?
 
-Yes. See the [Plugins](README.md#Plugins) section in [README.md](README.md). 
+Yes. See the [Plugins](README.md#Plugins) section in [README.md](README.md).
 
 ### 7. What goroutine executes the event handler methods?
 
@@ -403,7 +467,11 @@ racing feature.
 
 ## G. HTTPDoer Configuration
 
-### 1. What is the default `HTTPDoer` used by an `httpx.Client`? 
+1. [What is the default `HTTPDoer` used by an `httpx.Client`?](#1-what-is-the-default-httpdoer-used-by-an-httpxclient)
+2. [I use `http.Client` as my `HTTPDoer`. How do I configure it?](#2-i-use-httpclient-as-my-httpdoer-how-do-i-configure-it)
+3. [What client-side timeouts should I use on `http.Client`?](#3-what-client-side-timeouts-should-i-use-on-httpclient)
+
+### 1. What is the default `HTTPDoer` used by an `httpx.Client`?
 
 An `httpx.Client` with a `nil` valued `HTTPDoer` (including the zero value
 client) uses `http.DefaultClient` as its `HTTPDoer`.
@@ -428,6 +496,15 @@ will likely want to have them set to a lower value than the lowest timeout your
 httpx timeout policy can return.
 
 ## 7. Detailed feature FAQ
+
+1. [What is a request plan?](#1-what-is-a-request-plan)
+2. [What is a request execution?](#2-what-is-a-request-execution)
+3. [Why don't request plans support...?](#3-why-dont-request-plans-support)
+4. [Why does httpx consume pre-buffered request bodies?](#4-why-does-httpx-consume-pre-buffered-request-bodies)
+5. [Why does httpx produce pre-buffered response bodies?](#5-why-does-httpx-produce-pre-buffered-response-bodies)
+6. [Can I turn off request body pre-buffering?](#6-can-i-turn-off-request-body-pre-buffering)
+7. [Can I turn off response body pre-buffering?](#7-can-i-turn-off-response-body-pre-buffering)
+8. [Can I wrap `httpx.Client` with a Go standard `http.Client`?](#8-can-i-wrap-httpxclient-with-a-go-standard-httpclient)
 
 ### 1. What is a request plan?
 
@@ -530,10 +607,22 @@ HTTP retry libraries for Go:
 
 | | httpx | [heimdall](https://github.com/gojek/heimdall) | [rehttp](https://github.com/PuerkitoBio/rehttp) | [httpretry](https://github.com/ybbus/httpretry) | [go-http-retry](https://github.com/tescherm/go-http-retry) | [go-retryablehttp](https://github.com/hashicorp/go-retryablehttp) |
 |-|-|-|-|-|-|-|
-| Basic retry | ✅ |
-| Response buffering | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Basic event handlers/plugins | ✅ |
-| Advanced event handlers/plugins | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Accurate transient error classification | ✅ |
-| Flexible and adaptive timeouts | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Racing concurrent requests | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Basic retry | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Response buffering | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Flexible retry policies **(1)** | ✔ | ❌ | ✔ | ✔ | ✔ |
+| Accurate transient error classification **(2)** | ✔ | ❌ | ❌ | ❌ | ❌ |
+| Basic event handlers/plugins | ✔ | ✔ | ❌ | ❌ | ❌ | ✔ |
+| Complete event handlers/plugins | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Flexible and adaptive timeouts | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Racing concurrent requests | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| License | MIT | Apache 2.0 | BSD 3-Clause | MIT | MPL-2.0 |
+| Dependencies **(3)** | 0 | 10+ | N/A **(4)** | 0 | N/A **(4)** | 2 |
+
+Notes.
+
+1. *Flexible retry policy* means the user can configure both the retry
+   decision and the backoff.
+2. See [package transient](https://pkg.go.dev/github.com/gogama/httpx/transient)
+   and [retry.TransientErr](https://pkg.go.dev/github.com/gogama/httpx/retry#TransientErr).
+3. *Dependencies* means non-test dependencies.
+4. *N/A* for dependencies means not a Go module.
