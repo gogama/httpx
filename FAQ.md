@@ -201,7 +201,7 @@ being used alongside the racing feature.
 3. [Does racing have any associated costs or risks?](#3-does-racing-have-any-associated-costs-or-risks)
 4. [What is the default racing behavior?](#4-what-is-the-default-racing-behavior)
 5. [What is a wave?](#5-what-is-a-wave)
-6. [When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?](#6-when-an-attempt-finishes-within-a-wave-what-happens-to-the-other-in-flight-concurrent-attempts)
+6. [When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?](#6-when-an-attempt-finishes-what-happens-to-the-other-in-flight-concurrent-attempts-in-the-same-wave)
 7. [How do I start parallel requests at predetermined intervals?](#7-how-do-i-start-parallel-requests-at-predetermined-intervals)
 8. [Can I set a circuit breaker to disable racing?](#8-can-i-set-a-circuit-breaker-to-disable-racing)
 9. [Can I make my own custom racing policy?](#9-can-i-make-my-own-custom-racing-policy)
@@ -215,11 +215,10 @@ being used alongside the racing feature.
 
 Racing means making multiple parallel HTTP request attempts to satisfy
 one logical HTTP request plan, and using the result from the fastest
-attempt (first to complete) as the final HTTP request plan execution
-result.
+attempt (first to complete) as the final HTTP result.
 
-For example, you send `GET /dogs/german-shepherd` to `pets.com`. You
-haven't received the response after 200ms, so you send a second
+For example, you request `GET /dogs/german-shepherd` from `pets.com`.
+You haven't received the response after 200ms, so you send a second
 `GET /dogs/german-shepherd` without cancelling the first one. Now the
 first and second request attempts are "racing" each other, and the first
 to complete will satisfy the logical request.
@@ -242,15 +241,15 @@ consider the following factors:
   the downstream web service. If you pay another business for these
   requests, your bill may increase. If your downstream dependency is
   another service in your own organization, the increased traffic may
-  still increase your costs.
+  indirectly increase your organization's costs.
 - **Brownout**. A carelessly-designed racing policy may result in a
   surge in traffic to your downstream dependency at precisely the moment
   when the dependency is struggling to handle its existing traffic, let
   alone added load.
 - **Idempotency**. If the operation you are requesting on the remote
-  web service is not idempotent, may not be a good idea to send multiple
-  parallel requests to the service. For non-idempotent requests, do the
-  analysis to determine if racing is right for you.
+  web service is not idempotent, it may not be a good idea to send
+  multiple parallel requests to the service. For non-idempotent
+  requests, do the analysis to determine if racing is right for you.
 
 Fortunately a well-designed racing policy will not materially increase
 cost or brownout risk (see *e.g.*
@@ -260,8 +259,8 @@ and can be disabled for non-idempotent requests.
 ### 4. What is the default racing behavior?
 
 Racing is off by default. If you use the zero-value `httpx.Client`, or
-any `httpx.Client` with a nil racing policy, all HTTP requests attempts
-for a given request execution will be made serially.
+any `httpx.Client` with a `nil` racing policy, all HTTP requests
+attempts for a given request execution will be made serially.
 
 ### 5. What is a wave?
 
@@ -271,19 +270,19 @@ unless an explicit racing policy is specified, by default every wave
 contains only one attempt.
 
 When racing is enabled, concurrent request attempts are grouped in
-waves. If all request attempts within the wave finish are retryable,
-then client pauses for the wait period determined by the retry policy
+waves. If all request attempts within the wave finish and are retryable,
+the client waits for the pause duration determined by the retry policy
 and then begins a new wave.
 
-### 6. When an attempt finishes within a wave, what happens to the other in-flight concurrent attempts?
+### 6. When an attempt finishes, what happens to the other in-flight concurrent attempts in the same wave?
 
 As soon as one request attempt finishes, either due to successfully reading the
 whole response body or due to error, the wave is closed out: no new parallel
 attempts are added in to the wave.
 
 What happens to the other in-flight request attempts within the wave depends on
-the retry policy. See
-[How does retry work with the racing feature?](#11-how-does-retry-work-with-the-racing-feature).
+the retry policy. (See
+[How does retry work with the racing feature?](#11-how-does-retry-work-with-the-racing-feature))
 
 ### 7. How do I start parallel requests at predetermined intervals?
 
@@ -333,9 +332,9 @@ by the retry policy's `Wait` method and then starts a new wave.
 Again as in the serial case, a negative retry decision means "stop
 trying". As soon as one attempt finishes with a negative retry decision,
 all other in-flight attempts in the race are cancelled with the special
-error value `racing.Redundant` and attempt that finished with the negative
-retry decision represents the final state of the HTTP request plan
-execution.
+error value `racing.Redundant` and the attempt which finished with the
+negative retry decision represents the final state of the HTTP request
+plan execution.
 
 ### 12. How do timeouts work with the racing feature?
 
@@ -447,7 +446,8 @@ must otherwise treat the execution as immutable.
   response with an equivalent response or modify the response fields.
   If the response body reader is altered, it must be replaced by a new,
   unclosed, reader *and* the event handler is responsible for ensuring
-  the old body reader is fully read and closed.
+  the old body reader is fully read and closed to avoid leaking
+  connections.
 
 ### 5. What are plugins?
 
@@ -491,9 +491,9 @@ the `httpx.Client` timeout policy to `timeout.Infinite`.
 To be slightly more nuanced, you may leverage any timeouts on the underlying
 `http.Client`, including on its transport, *provided* you are aware of how they
 will play with your timeout and retry policies. For example, it may make sense
-to set the dial or TCP connect timeouts on the transport, but if you do so, you
-will likely want to have them set to a lower value than the lowest timeout your
-httpx timeout policy can return.
+to set the dial or TLS handshake timeouts on the transport, but if you do so,
+you will likely want to have them set to a lower value than the lowest timeout
+your httpx timeout policy can return.
 
 ## 7. Detailed feature FAQ
 
@@ -529,8 +529,8 @@ During the execution of a request plan initiated by a call to one of
 the executing methods (`Do`, `Get`, `Post`, *etc.*) from `httpx.Client`,
 the `request.Execution` representing execution state is passed to all
 policy methods (retry, timeout, racing) and all event handler methods.
-This allows policies and event handlers to act make decisions according
-to the detailed and current execution state...
+This allows policies and event handlers to act according to the detailed
+and current execution state...
 
 ### 3. Why don't request plans support...?
 
@@ -563,11 +563,11 @@ simplify.)
   the user to read the body outside the retry loop.
 
 - **Response body may contain information relevant to a retry
-  decision.** For example, Esri's ArcGIS include web service always
-  returns an HTTP response header containing status HTTP 200 OK. The
-  response body, however, may be a JSON error object with its own status
-  code indicating retryability. The entire response body must be read to
-  make a correct retry decision.
+  decision.** For example, Esri's ArcGIS web service always returns an
+  HTTP response header containing status HTTP 200 OK. The response body,
+  however, may be a JSON error object with its own status code
+  indicating retryability. The entire response body must be read to make
+  a correct retry decision.
 
 ### 6. Can I turn off request body pre-buffering?
 
@@ -593,12 +593,13 @@ your code around single-method interfaces like `httpx.Doer`.
 
 The stock technique for converting to an `http.Client` is to wrap the
 target (`httpx.Client`) in an implementation of the `http.RoundTripper`
-interface and then use the `RoundTripper` as the `Transport` for the
-`http.Client`. The advantage of doing this is it's relatively simple and
-allows you to avoid changing code that consumes `*http.Client`. The
-disadvantages are that it explicitly violates just about every promise
-made in the documented `RoundTripper` interface contract: "a single
-HTTP transaction", "should not attempt to interpret the request", *etc.*
+interface and then use your wrapper `RoundTripper` implementation as the
+`Transport` for the `http.Client`. The advantage of doing this is it's
+relatively simple and allows you to avoid changing code that consumes
+`*http.Client`. The disadvantages are that it explicitly violates just
+about every promise made in the documented `RoundTripper` interface
+contract: "a single HTTP transaction", "should not attempt to interpret
+the request", *etc.*
 
 ## 8. Alternative HTTP client libraries
 
@@ -609,13 +610,13 @@ HTTP retry libraries for Go:
 |-|-|-|-|-|-|-|
 | Basic retry | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | Response buffering | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Flexible retry policies **(1)** | ✔ | ❌ | ✔ | ✔ | ✔ |
-| Accurate transient error classification **(2)** | ✔ | ❌ | ❌ | ❌ | ❌ |
-| Basic event handlers/plugins | ✔ | ✔ | ❌ | ❌ | ❌ | ✔ |
-| Complete event handlers/plugins | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Flexible retry policies **(1)** | ✔ | ❌ | ✔ | ✔ | ✔ | ✔ |
+| Accurate transient error classification **(2)** | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Simple event handlers | ✔ | ✔ | ❌ | ❌ | ❌ | ✔ |
+| Comprehensive event handlers/plugins | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Flexible and adaptive timeouts | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Racing concurrent requests | ✔ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| License | MIT | Apache 2.0 | BSD 3-Clause | MIT | MPL-2.0 |
+| License | MIT | Apache 2.0 | BSD 3-Clause | MIT | MIT | MPL-2.0 |
 | Dependencies **(3)** | 0 | 10+ | N/A **(4)** | 0 | N/A **(4)** | 2 |
 
 Notes.
