@@ -93,8 +93,7 @@ client := &httpx.Client{
 	// attempt have received a response after one second. 
 	RacingPolicy: racing.NewPolicy( 
 		racing.NewStaticScheduler(300*time.Millisecond, 1*time.Second),
-		racing.AlwaysStart
-    )
+		racing.AlwaysStart)
 }
 ```
 

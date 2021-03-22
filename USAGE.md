@@ -1,7 +1,17 @@
 httpx - Usage Guide
 ===================
 
-## Concepts
+Contents:
+
+1. [Concepts](#1-concepts)
+2. [Retry](#2-retry)
+3. [Timeouts](#3-timeouts)
+4. [Racing](#4-racing-parallel-requests)
+5. [Event Handlers](#5-event-handlers)
+
+See Also: [FAQ](FAQ.md) | [README](README.md) | [Full API Documentation](https://pkg.go.dev/github.com/gogama/httpx)
+
+## 1. Concepts
 
 ### Core types
 
@@ -72,7 +82,7 @@ client := &httx.Client{
 }
 ```
 
-## Retry
+## 2. Retry
 
 A [`retry.Policy`](https://pkg.go.dev/github.com/gogama/httpx/retry#Policy) runs
 after each request attempt with a plan execution to decide whether a retry should
@@ -92,7 +102,7 @@ client := &httpx.Client{
 }
 ```
 
-## Timeouts
+## 3. Timeouts
 
 ### Attempt Timeouts
 
@@ -133,7 +143,7 @@ Since the plan context is the parent context for each attempt within the plan
 execution, a plan timeout will also cause a request attempt timeout if it
 happens while an attempt's HTTP request is in flight.
 
-## Racing (Parallel Requests)
+## 4. Racing (Parallel Requests)
 
 A [`racing.Policy`](https://pkg.go.dev/github.com/gogama/httpx/racing#Policy)
 allows multiple HTTP request attempts to be made to satisfy the same request
@@ -153,7 +163,7 @@ client := &httpx.Client{
 }
 ```
 
-## Event Handlers
+## 5. Event Handlers
 
 Optional event handlers allow you to extend `httpx.Client` with custom logic,
 for example, adding attempt-specific headers to the request or recording log

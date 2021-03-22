@@ -12,6 +12,8 @@ Contents:
 7. [Detailed feature FAQ](#7-detailed-feature-faq)
 8. [Alternative HTTP client libraries](#8-alternative-http-client-libraries)
 
+See Also: [Usage Guide](USAGE.md) | [README](README.md) | [Full API Documentation](https://pkg.go.dev/github.com/gogama/httpx)
+
 ## 1. Why use httpx?
 
 1. [What is httpx?](#1-what-is-httpx)
