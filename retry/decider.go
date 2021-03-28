@@ -88,11 +88,11 @@ func (f DeciderFunc) Or(g DeciderFunc) DeciderFunc {
 }
 
 // Times constructs a retry decider which allows up to n retries. The
-// returned decider returns true while the execution attempt index
-// e.Attempt is less than n, and false otherwise.
+// returned decider returns true while the number of finished attempts
+// within the execution is less than or equal to n, and false otherwise.
 func Times(n int) DeciderFunc {
 	return func(e *request.Execution) bool {
-		return e.Attempt < n
+		return e.AttemptEnds <= n
 	}
 }
 

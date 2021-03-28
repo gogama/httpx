@@ -31,8 +31,8 @@ func TestDefault(t *testing.T) {
 			}))
 		}
 		assert.False(t, DefaultPolicy.Decide(&request.Execution{
-			Attempt: DefaultTimes,
-			Err:     syscall.ETIMEDOUT,
+			AttemptEnds: DefaultTimes + 1,
+			Err:         syscall.ETIMEDOUT,
 		}))
 	})
 	t.Run("Waiter", func(t *testing.T) {
@@ -50,7 +50,8 @@ func TestDefault(t *testing.T) {
 }
 
 func TestNever(t *testing.T) {
-	assert.False(t, Never.Decide(&request.Execution{}))
+	assert.True(t, Never.Decide(&request.Execution{}))
+	assert.False(t, Never.Decide(&request.Execution{AttemptEnds: 1}))
 }
 
 func TestNewPolicy(t *testing.T) {

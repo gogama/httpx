@@ -29,9 +29,11 @@ func TestDefaultDecider(t *testing.T) {
 			t.Run(fmt.Sprintf("codes[%d]=%d", i, code), func(t *testing.T) {
 				for j := 0; j < DefaultTimes; j++ {
 					e.Attempt = j
+					e.AttemptEnds = e.Attempt + 1
 					assert.True(t, DefaultDecider(&e), fmt.Sprintf("Expect true for attempt %d", j))
 				}
 				e.Attempt = DefaultTimes
+				e.AttemptEnds = e.Attempt + 1
 				assert.False(t, DefaultDecider(&e), fmt.Sprintf("Expect false for attempt %d", e.Attempt))
 			})
 		}
@@ -45,8 +47,10 @@ func TestDefaultDecider(t *testing.T) {
 			}
 			t.Run(fmt.Sprintf("codes[%d]=%d", i, code), func(t *testing.T) {
 				e.Attempt = 0
+				e.AttemptEnds = e.Attempt + 1
 				assert.False(t, DefaultDecider(&e), "Expect false for attempt 0")
 				e.Attempt = 4
+				e.AttemptEnds = e.Attempt + 1
 				assert.False(t, DefaultDecider(&e), "Expect false for attempt 4")
 			})
 		}
@@ -60,9 +64,11 @@ func TestDefaultDecider(t *testing.T) {
 			t.Run(fmt.Sprintf("transientErrs[%d]=%v", i, te), func(t *testing.T) {
 				for j := 0; j < DefaultTimes; j++ {
 					e.Attempt = j
+					e.AttemptEnds = e.Attempt + 1
 					assert.True(t, DefaultDecider(&e), fmt.Sprintf("Expect true for attempt %d", j))
 				}
 				e.Attempt = DefaultTimes
+				e.AttemptEnds = e.Attempt + 1
 				assert.False(t, DefaultDecider(&e), fmt.Sprintf("Expect false for attempt %d", e.Attempt))
 			})
 		}
@@ -75,8 +81,10 @@ func TestDefaultDecider(t *testing.T) {
 			}
 			t.Run(fmt.Sprintf("nonTransientErrs[%d]=%v", i, nte), func(t *testing.T) {
 				e.Attempt = 0
+				e.AttemptEnds = e.Attempt + 1
 				assert.False(t, DefaultDecider(&e), "Expect false for attempt 0")
 				e.Attempt = 4
+				e.AttemptEnds = e.Attempt + 1
 				assert.False(t, DefaultDecider(&e), "Expect false for attempt 4")
 			})
 		}
@@ -131,13 +139,17 @@ func TestDeciderOr(t *testing.T) {
 
 func TestTimes(t *testing.T) {
 	zero := Times(0)
-	assert.False(t, zero(&request.Execution{}))
+	assert.True(t, zero(&request.Execution{}))
+	assert.False(t, zero(&request.Execution{AttemptEnds: 1}))
 	one := Times(1)
 	assert.True(t, one(&request.Execution{}))
-	assert.False(t, one(&request.Execution{Attempt: 1}))
+	assert.True(t, one(&request.Execution{AttemptEnds: 1}))
+	assert.False(t, one(&request.Execution{AttemptEnds: 2}))
 	two := Times(2)
-	assert.True(t, two(&request.Execution{Attempt: 1}))
-	assert.False(t, two(&request.Execution{Attempt: 2}))
+	assert.True(t, two(&request.Execution{}))
+	assert.True(t, two(&request.Execution{AttemptEnds: 1}))
+	assert.True(t, two(&request.Execution{AttemptEnds: 2}))
+	assert.False(t, two(&request.Execution{AttemptEnds: 3}))
 }
 
 func TestBefore(t *testing.T) {

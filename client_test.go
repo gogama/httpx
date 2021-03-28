@@ -127,22 +127,26 @@ func testClientHappyPath(t *testing.T) {
 
 			cl.Handlers.mock(BeforeExecutionStart).On("Handle", BeforeExecutionStart, mock.MatchedBy(func(e *request.Execution) bool {
 				return e.Start == time.Time{} &&
+					e.AttemptEnds == e.Attempt &&
 					e.Plan != nil && e.Request == nil && e.Response == nil && !e.Ended()
 			})).Once()
 			cl.Handlers.mock(BeforeAttempt).On("Handle", BeforeAttempt, mock.MatchedBy(func(e *request.Execution) bool {
 				return !e.Start.Before(before) && !e.Start.After(time.Now()) &&
-					e.Request != nil && e.Response == nil && !e.Ended()
+					e.AttemptEnds == e.Attempt && e.Request != nil && e.Response == nil && !e.Ended()
 			})).Once()
 			cl.Handlers.mock(BeforeReadBody).On("Handle", BeforeReadBody, mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Request != nil && e.Response == resp && e.Err == nil && !e.Ended()
+				return e.Request != nil && e.Response == resp && e.AttemptEnds == e.Attempt &&
+					e.Err == nil && !e.Ended()
 			})).Once()
 			cl.Handlers.mock(AfterAttemptTimeout) // Add so we can assert it was never called.
 			cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Request != nil && e.Response == resp && e.Err == nil && !e.Ended()
+				return e.Request != nil && e.Response == resp && e.AttemptEnds == e.Attempt &&
+					e.Err == nil && !e.Ended()
 			})).Once()
 			cl.Handlers.mock(AfterPlanTimeout) // Add so we can assert it was never called.
 			cl.Handlers.mock(AfterExecutionEnd).On("Handle", AfterExecutionEnd, mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Request != nil && e.Response == resp && e.Err == nil && e.Attempt == 0 &&
+				return e.Request != nil && e.Response == resp && e.Err == nil &&
+					e.Attempt == 0 && e.AttemptEnds == 1 &&
 					e.Racing == 0 && e.Wave == 0 && e.Ended()
 			})).Once()
 
@@ -163,6 +167,7 @@ func testClientHappyPath(t *testing.T) {
 			assert.Equal(t, 200, e.StatusCode())
 			assert.Equal(t, []byte("foo"), e.Body)
 			assert.Equal(t, 0, e.Attempt)
+			assert.Equal(t, 1, e.AttemptEnds)
 			assert.Equal(t, 0, e.Racing)
 			assert.Equal(t, 0, e.Wave)
 
@@ -195,6 +200,7 @@ func testClientZeroValue(t *testing.T) {
 				assert.Equal(t, 200, e.StatusCode())
 				assert.Empty(t, e.Body)
 				assert.Equal(t, 0, e.Attempt)
+				assert.Equal(t, 1, e.AttemptEnds)
 				assert.Equal(t, 0, e.Racing)
 				assert.Equal(t, 0, e.Wave)
 			},
@@ -218,6 +224,7 @@ func testClientZeroValue(t *testing.T) {
 				assert.Equal(t, 404, e.StatusCode())
 				assert.Equal(t, []byte("the thingy was not in the place"), e.Body)
 				assert.Equal(t, 0, e.Attempt)
+				assert.Equal(t, 1, e.AttemptEnds)
 				assert.Equal(t, 0, e.Racing)
 				assert.Equal(t, 0, e.Wave)
 			},
@@ -228,7 +235,7 @@ func testClientZeroValue(t *testing.T) {
 				StatusCode: 503,
 				Body: []bodyChunk{
 					{
-						Data: []byte("ain't not service in these parts"),
+						Data: []byte("ain't no service in these parts"),
 					},
 				},
 			},
@@ -239,8 +246,9 @@ func testClientZeroValue(t *testing.T) {
 				assert.NotNil(t, e.Request)
 				assert.NotNil(t, e.Response)
 				assert.Equal(t, 503, e.StatusCode())
-				assert.Equal(t, []byte("ain't not service in these parts"), e.Body)
+				assert.Equal(t, []byte("ain't no service in these parts"), e.Body)
 				assert.Equal(t, retry.DefaultTimes, e.Attempt)
+				assert.Equal(t, retry.DefaultTimes+1, e.AttemptEnds)
 				assert.Equal(t, 0, e.AttemptTimeouts)
 				assert.Equal(t, 0, e.Racing)
 				assert.Equal(t, retry.DefaultTimes, e.Wave)
@@ -333,6 +341,7 @@ func testClientAttemptTimeout(t *testing.T) {
 						assert.NotNil(t, e.Body)
 					}
 					assert.Equal(t, e.Attempt, 0)
+					assert.Equal(t, e.AttemptEnds, 1)
 					assert.Equal(t, e.AttemptTimeouts, 1)
 					assert.Equal(t, 0, e.Racing)
 					assert.Equal(t, 0, e.Wave)
@@ -432,6 +441,7 @@ func testClientBodyError(t *testing.T) {
 					assert.Equal(t, 0, e.StatusCode())
 				}
 				assert.Equal(t, 0, e.Attempt)
+				assert.Equal(t, 1, e.AttemptEnds)
 				assert.Equal(t, 1, e.AttemptTimeouts)
 				assert.Equal(t, 0, e.Racing)
 				assert.Equal(t, 0, e.Wave)
@@ -467,6 +477,8 @@ func testClientBodyError(t *testing.T) {
 		assert.NotNil(t, e.Response)
 		assert.Equal(t, 202, e.StatusCode())
 		assert.Equal(t, []byte{}, e.Body)
+		assert.Equal(t, 0, e.Attempt)
+		assert.Equal(t, 1, e.AttemptEnds)
 		assert.Equal(t, []string{
 			"BeforeExecutionStart",
 			"BeforeAttempt",
@@ -502,7 +514,7 @@ func testClientRetryPlanTimeout(t *testing.T) {
 	mockRetryPolicy.On("Wait", mock.Anything).Return(time.Hour).Maybe()
 	cl.Handlers.mock(AfterPlanTimeout).On("Handle", AfterPlanTimeout, mock.MatchedBy(func(e *request.Execution) bool {
 		err, ok := e.Err.(*url.Error)
-		return e.Attempt == 0 && e.AttemptTimeouts == 0 &&
+		return e.Attempt == 0 && e.AttemptEnds == 1 && e.AttemptTimeouts == 0 &&
 			e.Request != nil && e.Response != nil && e.Body != nil &&
 			ok && err.Timeout()
 	})).Return().Once()
@@ -529,6 +541,7 @@ func testClientRetryPlanTimeout(t *testing.T) {
 	assert.NotNil(t, e.Response)
 	assert.NotNil(t, e.Body)
 	assert.Equal(t, 0, e.Attempt)
+	assert.Equal(t, 1, e.AttemptEnds)
 	assert.Equal(t, 0, e.AttemptTimeouts)
 	assert.Equal(t, 0, e.Racing)
 	assert.Equal(t, 0, e.Wave)
@@ -671,6 +684,7 @@ func testClientRetryVarious(t *testing.T) {
 			}
 			require.NotNil(t, e.Request)
 			assert.Equal(t, i, e.Attempt)
+			assert.Equal(t, i+1, e.AttemptEnds)
 			assert.Equal(t, 1, e.AttemptTimeouts)
 			assert.Equal(t, 0, e.Racing)
 			assert.Equal(t, i, e.Wave)
@@ -720,6 +734,7 @@ func testClientEventHandlerPanicEnsureCancelCalled(t *testing.T) {
 			require.Panics(t, func() { _, _ = cl.Get("test") })
 			require.NotNil(t, e)
 			assert.Equal(t, 0, e.Attempt)
+			assert.Equal(t, 1, e.AttemptEnds)
 			assert.Equal(t, 0, e.Racing)
 			assert.Equal(t, 0, e.Wave)
 			require.NotNil(t, e.Request)
@@ -896,6 +911,8 @@ func testClientPlanCancel(t *testing.T) {
 		assert.Same(t, context.Canceled, urlError.Err)
 		assert.Same(t, err, e.Err)
 		assert.Same(t, p, e.Plan)
+		assert.Equal(t, 0, e.Attempt)
+		assert.Equal(t, 1, e.AttemptEnds)
 	})
 	t.Run("plan cancelled after request", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -930,6 +947,8 @@ func testClientPlanCancel(t *testing.T) {
 		assert.Same(t, context.Canceled, urlError.Err)
 		assert.Same(t, err, e.Err)
 		assert.Same(t, p, e.Plan)
+		assert.Equal(t, 0, e.Attempt)
+		assert.Equal(t, 1, e.AttemptEnds)
 	})
 }
 
@@ -974,6 +993,8 @@ func testClientPlanChange(t *testing.T) {
 		var urlError *url.Error
 		require.ErrorAs(t, err, &urlError)
 		assert.Same(t, nonRetryableErr, urlError.Unwrap())
+		assert.Equal(t, 0, e.Attempt)
+		assert.Equal(t, 1, e.AttemptEnds)
 	})
 	t.Run("to nil (panic)", func(t *testing.T) {
 		doer := newMockHTTPDoer(t)
@@ -1070,6 +1091,7 @@ func testClientRacingNeverStart(t *testing.T) {
 	assert.NoError(t, e.Err)
 	assert.Equal(t, 204, e.StatusCode())
 	assert.Equal(t, 0, e.Attempt)
+	assert.Equal(t, 1, e.AttemptEnds)
 	assert.Equal(t, 0, e.Racing)
 	assert.Equal(t, 0, e.Wave)
 	assert.Equal(t, []string{
@@ -1124,10 +1146,10 @@ func testClientRacingRetry(t *testing.T) {
 		Return(&http.Response{StatusCode: 200, Body: ioutil.NopCloser(strings.NewReader("racing-retry=3"))}, nil).
 		Once()
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
-		return e.Wave == 0 && e.Attempt <= 2
+		return e.Wave == 0 && e.Attempt <= 2 && e.AttemptEnds <= 3
 	})).Return(true).Times(3)
 	retryPolicy.On("Decide", mock.MatchedBy(func(e *request.Execution) bool {
-		return e.Wave == 1 && e.Attempt == 3
+		return e.Wave == 1 && e.Attempt == 3 && e.AttemptEnds == 4
 	})).Return(false).Once()
 	retryPolicy.On("Wait", mock.Anything).Return(time.Nanosecond).Once()
 	racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
@@ -1150,6 +1172,7 @@ func testClientRacingRetry(t *testing.T) {
 	require.NoError(t, e.Err)
 	assert.Equal(t, 1, e.Wave)
 	assert.Equal(t, 3, e.Attempt)
+	assert.Equal(t, 4, e.AttemptEnds)
 	n := 2 + 4*3
 	require.Len(t, trace.calls, n)
 	assert.Equal(t, []string{
@@ -1331,7 +1354,10 @@ func testRacingPlanCancelDuringWaveLoop(t *testing.T) {
 	assert.Same(t, err, e.Err)
 	assert.Equal(t, 0, e.Wave)
 	assert.GreaterOrEqual(t, e.Attempt, 0)
+	assert.GreaterOrEqual(t, e.AttemptEnds, 1)
 	assert.LessOrEqual(t, e.Attempt, N+5)
+	assert.LessOrEqual(t, e.AttemptEnds, N+6)
+	assert.Less(t, e.Attempt, e.AttemptEnds)
 }
 
 func testClientRacingPanic(t *testing.T) {
@@ -1566,8 +1592,11 @@ func testClientRacingMultipleWaves(t *testing.T) {
 	assert.GreaterOrEqual(t, call, (numWaves-1)*minRacing)
 	assert.Equal(t, e.Wave, numWaves-1)
 	assert.GreaterOrEqual(t, e.Attempt, (numWaves-1)*minRacing)
+	assert.Greater(t, e.AttemptEnds, (numWaves-1)*minRacing)
 	assert.GreaterOrEqual(t, e.Attempt, curWaveFirstAttempt)
+	assert.Greater(t, e.AttemptEnds, curWaveFirstAttempt)
 	assert.Less(t, e.Attempt, numWaves*maxRacing)
+	assert.LessOrEqual(t, e.AttemptEnds, numWaves*maxRacing)
 }
 
 type mockHTTPDoer struct {

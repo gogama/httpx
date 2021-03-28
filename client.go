@@ -286,6 +286,7 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, halt b
 			es.handlers.run(AfterAttemptTimeout, es.exec)
 		}
 		es.handlers.run(AfterAttempt, es.exec)
+		es.exec.AttemptEnds++
 		es.exec.Racing--
 		attempt.resp = es.exec.Response
 		attempt.body = es.exec.Body
@@ -294,6 +295,7 @@ func (es *execState) handleCheckpoint(attempt *attemptState) (drain bool, halt b
 		halt = attempt.redundant || es.planCancelled() || !es.retryPolicy.Decide(es.exec)
 		return
 	case panicked:
+		es.exec.AttemptEnds++
 		es.exec.Racing--
 		panic(attempt.panicVal)
 	default:
@@ -370,6 +372,7 @@ func (es *execState) cleanupWave() {
 		as.cancel(false)
 		switch as.checkpoint {
 		case createdRequest, readBodyHandle:
+			es.exec.AttemptEnds++
 			es.exec.Racing--
 		case sentRequestHandle:
 			as.ready <- struct{}{}
@@ -386,9 +389,8 @@ func (es *execState) cleanupWave() {
 				continue
 			}
 			fallthrough
-		case readBody:
-			es.exec.Racing--
-		case panicked:
+		case readBody, panicked:
+			es.exec.AttemptEnds++
 			es.exec.Racing--
 		default:
 			panic("httpx: bad attempt checkpoint")

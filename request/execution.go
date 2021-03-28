@@ -54,8 +54,8 @@ type Execution struct {
 	// retries will have an attempt number of 2.
 	Attempt int
 
-	// AttemptTimeouts is the count of the number of times an HTTP
-	// request attempt timed out during the execution.
+	// AttemptTimeouts is the count of how many HTTP request attempts
+	// timed out during the execution.
 	//
 	// Plan timeouts (when the plan's own context deadline is exceeded)
 	// do not contribute to the attempt timeout counter, but if an
@@ -119,6 +119,10 @@ type Execution struct {
 	// client, the wave size is always one, so the value will be one
 	// during events relating to request attempts and zero otherwise.
 	Racing int
+
+	// AttemptEnds is the count of how many HTTP request attempts have
+	// ended within the execution.
+	AttemptEnds int
 
 	// Data contains arbitrary user data. The httpx library will not
 	// touch this field, and it will typically be nil unless used by
