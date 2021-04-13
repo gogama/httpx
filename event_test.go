@@ -32,3 +32,13 @@ func TestEvent_Name(t *testing.T) {
 	assert.Equal(t, "AfterPlanTimeout", AfterPlanTimeout.Name())
 	assert.Equal(t, "AfterExecutionEnd", AfterExecutionEnd.Name())
 }
+
+func TestEvent_String(t *testing.T) {
+	assert.Equal(t, "BeforeExecutionStart", BeforeExecutionStart.String())
+	assert.Equal(t, "BeforeAttempt", BeforeAttempt.String())
+	assert.Equal(t, "BeforeReadBody", BeforeReadBody.String())
+	assert.Equal(t, "AfterAttemptTimeout", AfterAttemptTimeout.String())
+	assert.Equal(t, "AfterAttempt", AfterAttempt.String())
+	assert.Equal(t, "AfterPlanTimeout", AfterPlanTimeout.String())
+	assert.Equal(t, "AfterExecutionEnd", AfterExecutionEnd.String())
+}

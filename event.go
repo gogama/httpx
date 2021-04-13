@@ -117,3 +117,8 @@ func Events() []Event {
 func (evt Event) Name() string {
 	return eventNames[int(evt)]
 }
+
+// String returns the name of the event.
+func (evt Event) String() string {
+    return evt.Name()
+}
