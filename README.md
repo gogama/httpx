@@ -126,6 +126,8 @@ httpx plugins into your client:
 
 1. [aws-xray-httpx](https://github.com/gogama/aws-xray-httpx) - Adds AWS X-Ray
    tracing support into `httpx.Client`.
+2. [reconnx](https://github.com/gogama/reconnx) - Discards slow HTTP connections
+   from connection pool.
 
 ---
 
