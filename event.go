@@ -120,5 +120,5 @@ func (evt Event) Name() string {
 
 // String returns the name of the event.
 func (evt Event) String() string {
-    return evt.Name()
+	return evt.Name()
 }
