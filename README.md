@@ -135,3 +135,10 @@ License
 =======
 
 This project is licensed under the terms of the MIT License.
+
+Acknowledgements
+================
+
+Developer happiness on this project was boosted by JetBrains' generous donation
+of an [open source license](https://www.jetbrains.com/opensource/) for their
+lovely GoLand IDE. ❤
