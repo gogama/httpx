@@ -52,7 +52,7 @@ section to how httpx compares with other GoLang HTTP client libraries.
 
 ### 1. What Go versions are supported?
 
-Package httpx works on Go 1.13 and higher.
+Package httpx works on Go 1.14 and higher.
 
 ### 2. How do I update to the latest httpx version?
 
