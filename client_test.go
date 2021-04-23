@@ -1450,9 +1450,9 @@ func testClientRacingPanic(t *testing.T) {
 		},
 	}
 
-	schedule := make([]time.Duration, N)
-	for i := 0; i < N-1; i++ {
-		schedule[i] = time.Duration(i) * 50 * time.Microsecond
+	schedule := make([]time.Duration, N-1)
+	for i := 1; i <= N-1; i++ {
+		schedule[i-1] = time.Duration(i) * 50 * time.Microsecond
 	}
 
 	for _, testCase := range testCases {
