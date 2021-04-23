@@ -21,8 +21,14 @@ const (
 	//
 	// When Client fires BeforeAttempt, the execution's request
 	// field is set to the HTTP request that WILL BE sent after all
-	// BeforeAttempt handlers have finished (however, handlers MAY
-	// modify this field).
+	// BeforeAttempt handlers have finished.
+	//
+	// BeforeAttempt Handlers may modify the execution's request, or
+	// some of its fields, thus changing the HTTP request that will be
+	// sent. However, BeforeAttempt handlers should clone request fields
+	// which have reference types (URL and Header) before changing them
+	// to avoid side effects, as these fields initially reference the
+	// same-named fields in the plan.
 	BeforeAttempt
 	// BeforeReadBody identifies the event that occurs after an HTTP
 	// request attempt has resulted in an HTTP response (as opposed to
