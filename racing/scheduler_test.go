@@ -23,10 +23,17 @@ func TestNewStaticSchedulerTest(t *testing.T) {
 		assert.Equal(t, time.Duration(0), sc.Schedule(&request.Execution{}))
 		assert.Equal(t, time.Duration(0), sc.Schedule(&request.Execution{Racing: 1000}))
 	})
+	t.Run("Size=1", func(t *testing.T) {
+		sc := NewStaticScheduler(time.Hour)
+		assert.Equal(t, time.Duration(0), sc.Schedule(&request.Execution{Racing: 0}))
+		assert.Equal(t, time.Hour, sc.Schedule(&request.Execution{Racing: 1}))
+		assert.Equal(t, time.Duration(0), sc.Schedule(&request.Execution{Racing: 2}))
+	})
 	t.Run("Size=2", func(t *testing.T) {
 		sc := NewStaticScheduler(time.Millisecond, time.Second)
-		assert.Equal(t, time.Second, sc.Schedule(&request.Execution{Racing: 1}))
-		assert.Equal(t, time.Millisecond, sc.Schedule(&request.Execution{Racing: 0}))
+		assert.Equal(t, time.Duration(0), sc.Schedule(&request.Execution{Racing: 0}))
+		assert.Equal(t, time.Millisecond, sc.Schedule(&request.Execution{Racing: 1}))
+		assert.Equal(t, time.Second, sc.Schedule(&request.Execution{Racing: 2}))
 		assert.Equal(t, time.Duration(0), sc.Schedule(&request.Execution{Racing: 1000}))
 	})
 }

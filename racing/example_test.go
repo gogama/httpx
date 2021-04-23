@@ -19,7 +19,7 @@ func ExampleNewStaticScheduler() {
 	// already racing.
 	var e request.Execution
 	for i := 0; i <= 3; i++ {
-		e.Racing = i
+		e.Racing = i+1
 		fmt.Println(sc.Schedule(&e))
 	}
 	// Output:

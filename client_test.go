@@ -1451,7 +1451,7 @@ func testClientRacingPanic(t *testing.T) {
 	}
 
 	schedule := make([]time.Duration, N)
-	for i := 0; i < N; i++ {
+	for i := 0; i < N-1; i++ {
 		schedule[i] = time.Duration(i) * 50 * time.Microsecond
 	}
 

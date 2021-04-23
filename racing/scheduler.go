@@ -45,9 +45,10 @@ func NewStaticScheduler(offset ...time.Duration) Scheduler {
 type staticScheduler []time.Duration
 
 func (sc staticScheduler) Schedule(e *request.Execution) time.Duration {
-	if e.Racing >= len(sc) {
+	r := e.Racing - 1
+	if r < 0 || r >= len(sc) {
 		return 0
 	}
 
-	return sc[e.Racing]
+	return sc[r]
 }
