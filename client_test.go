@@ -714,7 +714,7 @@ func testClientEventHandlerPanicEnsureCancelCalled(t *testing.T) {
 	// Ensure that if the event handler panics, the request context
 	// cancel function is called.
 	for _, evt := range []Event{BeforeAttempt, BeforeReadBody} {
-		t.Run(evt.Name(), func(t *testing.T) {
+		t.Run(evt.String(), func(t *testing.T) {
 			doer := newMockHTTPDoer(t)
 			handlers := &HandlerGroup{}
 			cl := &Client{
@@ -1413,7 +1413,7 @@ func testClientRacingPanic(t *testing.T) {
 	setupEventHandlerPanic := func(handlers *HandlerGroup, event Event) {
 		handlers.mock(event).
 			On("Handle", event, mock.AnythingOfType("*request.Execution")).
-			Panic("event handler panic - " + event.Name() + "!").
+			Panic("event handler panic - " + event.String() + "!").
 			Once()
 	}
 
@@ -1716,7 +1716,7 @@ type trace struct {
 func (c *Client) addTraceHandlers() *trace {
 	tr := &trace{}
 	f := func(evt Event, _ *request.Execution) {
-		tr.calls = append(tr.calls, evt.Name())
+		tr.calls = append(tr.calls, evt.String())
 	}
 	h := HandlerFunc(f)
 	for _, evt := range Events() {

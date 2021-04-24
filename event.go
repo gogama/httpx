@@ -120,11 +120,14 @@ func Events() []Event {
 }
 
 // Name returns the name of the event.
+//
+// Deprecated: This method is redundant with String and will be removed
+// in the near future.
 func (evt Event) Name() string {
-	return eventNames[int(evt)]
+	return evt.String()
 }
 
 // String returns the name of the event.
 func (evt Event) String() string {
-	return evt.Name()
+	return eventNames[int(evt)]
 }

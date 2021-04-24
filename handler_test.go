@@ -57,7 +57,7 @@ type testHandler struct {
 }
 
 func (h *testHandler) Handle(evt Event, e *request.Execution) {
-	*h.evts = append(*h.evts, fmt.Sprintf("%d.%s", h.seq, evt.Name()))
+	*h.evts = append(*h.evts, fmt.Sprintf("%d.%s", h.seq, evt))
 	*h.execs = append(*h.execs, e)
 }
 
