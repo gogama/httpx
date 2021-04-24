@@ -6,6 +6,7 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -523,7 +524,7 @@ func (as *attemptState) recoverPanic() {
 }
 
 func (as *attemptState) maybeRedundant(err error) error {
-	if err == context.Canceled && as.redundant {
+	if as.redundant && errors.Is(err, context.Canceled) {
 		return racing.Redundant
 	}
 

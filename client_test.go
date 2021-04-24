@@ -1197,19 +1197,19 @@ func testClientRacingCancelRedundant(t *testing.T) {
 	// ensures the first attempt is cancelled as redundant.
 	testCases := []struct {
 		name                string
-		setupFirstDoCall    func(t *testing.T, doCall *mock.Call)
+		setupFirstDoCall    func(t *testing.T, doCall *mock.Call, canceledErr error)
 		afterAttemptMatcher func(e *request.Execution) bool
 	}{
 		{
 			name: "cancel Do",
-			setupFirstDoCall: func(t *testing.T, doCall *mock.Call) {
+			setupFirstDoCall: func(t *testing.T, doCall *mock.Call, canceledErr error) {
 				doCall.
 					Run(func(args mock.Arguments) {
 						req := args.Get(0).(*http.Request)
 						ctx := req.Context()
 						<-ctx.Done()
 					}).
-					Return(nil, context.Canceled).
+					Return(nil, canceledErr).
 					Once()
 			},
 			afterAttemptMatcher: func(e *request.Execution) bool {
@@ -1218,14 +1218,14 @@ func testClientRacingCancelRedundant(t *testing.T) {
 		},
 		{
 			name: "cancel read body",
-			setupFirstDoCall: func(t *testing.T, doCall *mock.Call) {
+			setupFirstDoCall: func(t *testing.T, doCall *mock.Call, canceledErr error) {
 				var ctx context.Context
 				mockBody := newMockReadCloser(t)
 				mockBody.On("Read", mock.Anything).
 					Run(func(_ mock.Arguments) {
 						<-ctx.Done()
 					}).
-					Return(0, context.Canceled).
+					Return(0, canceledErr).
 					Once()
 				mockBody.On("Close").
 					Return(nil).
@@ -1244,53 +1244,75 @@ func testClientRacingCancelRedundant(t *testing.T) {
 		},
 	}
 
+	cancelErrs := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "context.Canceled",
+			err:  context.Canceled,
+		},
+		{
+			name: "url.Error",
+			err: &url.Error{
+				Op:  "foo",
+				URL: "bar",
+				Err: context.Canceled,
+			},
+		},
+	}
+
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			doer := newMockHTTPDoer(t)
-			retryPolicy := newMockRetryPolicy(t)
-			racingPolicy := newMockRacingPolicy(t)
-			cl := Client{
-				HTTPDoer:      doer,
-				TimeoutPolicy: timeout.Infinite,
-				RetryPolicy:   retryPolicy,
-				RacingPolicy:  racingPolicy,
-				Handlers:      &HandlerGroup{},
+			for _, cancelErr := range cancelErrs {
+				t.Run(cancelErr.name, func(t *testing.T) {
+					doer := newMockHTTPDoer(t)
+					retryPolicy := newMockRetryPolicy(t)
+					racingPolicy := newMockRacingPolicy(t)
+					cl := Client{
+						HTTPDoer:      doer,
+						TimeoutPolicy: timeout.Infinite,
+						RetryPolicy:   retryPolicy,
+						RacingPolicy:  racingPolicy,
+						Handlers:      &HandlerGroup{},
+					}
+					callOrder := callOrderMatcher{}
+					firstDoCall := doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(0) }))
+					testCase.setupFirstDoCall(t, firstDoCall, cancelErr.err)
+					doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(1) })).
+						Return(&http.Response{StatusCode: 418, Body: ioutil.NopCloser(strings.NewReader("I'm a teapot"))}, nil).
+						Once()
+					retryPolicy.On("Decide", mock.AnythingOfType("*request.Execution")).
+						Return(false).
+						Once()
+					racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
+						return e.Attempt == 0 && e.Wave == 0 && e.Racing == 1
+					})).Return(time.Microsecond).Once()
+					racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
+						return e.Attempt == 1 && e.Wave == 0 && e.Racing == 2
+					})).Return(time.Duration(0)).Once()
+					racingPolicy.On("Start", mock.MatchedBy(func(e *request.Execution) bool {
+						return e.Attempt == 0 && e.Wave == 0 && e.Racing == 1
+					})).Return(true).Once()
+					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.MatchedBy(func(e *request.Execution) bool {
+						return e.StatusCode() == 418 && bytes.Equal(e.Body, []byte("I'm a teapot")) && e.Err == nil && e.Wave == 0
+					})).Once()
+					cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.MatchedBy(func(e *request.Execution) bool {
+						return errors.Unwrap(e.Err) == racing.Redundant && e.Wave == 0 && testCase.afterAttemptMatcher(e)
+					})).Once()
+
+					e, err := cl.Get("test")
+
+					doer.AssertExpectations(t)
+					retryPolicy.AssertExpectations(t)
+					racingPolicy.AssertExpectations(t)
+					cl.Handlers.assertExpectations(t)
+					assert.NoError(t, err)
+					require.NotNil(t, e)
+					assert.Equal(t, 418, e.StatusCode())
+					assert.Equal(t, []byte("I'm a teapot"), e.Body)
+				})
 			}
-			callOrder := callOrderMatcher{}
-			firstDoCall := doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(0) }))
-			testCase.setupFirstDoCall(t, firstDoCall)
-			doer.On("Do", mock.MatchedBy(func(_ *http.Request) bool { return callOrder.Match(1) })).
-				Return(&http.Response{StatusCode: 418, Body: ioutil.NopCloser(strings.NewReader("I'm a teapot"))}, nil).
-				Once()
-			retryPolicy.On("Decide", mock.AnythingOfType("*request.Execution")).
-				Return(false).
-				Once()
-			racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Attempt == 0 && e.Wave == 0 && e.Racing == 1
-			})).Return(time.Microsecond).Once()
-			racingPolicy.On("Schedule", mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Attempt == 1 && e.Wave == 0 && e.Racing == 2
-			})).Return(time.Duration(0)).Once()
-			racingPolicy.On("Start", mock.MatchedBy(func(e *request.Execution) bool {
-				return e.Attempt == 0 && e.Wave == 0 && e.Racing == 1
-			})).Return(true).Once()
-			cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.MatchedBy(func(e *request.Execution) bool {
-				return e.StatusCode() == 418 && bytes.Equal(e.Body, []byte("I'm a teapot")) && e.Err == nil && e.Wave == 0
-			})).Once()
-			cl.Handlers.mock(AfterAttempt).On("Handle", AfterAttempt, mock.MatchedBy(func(e *request.Execution) bool {
-				return errors.Unwrap(e.Err) == racing.Redundant && e.Wave == 0 && testCase.afterAttemptMatcher(e)
-			})).Once()
-
-			e, err := cl.Get("test")
-
-			doer.AssertExpectations(t)
-			retryPolicy.AssertExpectations(t)
-			racingPolicy.AssertExpectations(t)
-			cl.Handlers.assertExpectations(t)
-			assert.NoError(t, err)
-			require.NotNil(t, e)
-			assert.Equal(t, 418, e.StatusCode())
-			assert.Equal(t, []byte("I'm a teapot"), e.Body)
 		})
 	}
 }
