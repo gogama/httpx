@@ -212,6 +212,7 @@ being used alongside the racing feature.
 12. [How do timeouts work with the racing feature?](#12-how-do-timeouts-work-with-the-racing-feature)
 13. [How do event handlers work with the racing feature?](#13-how-do-event-handlers-work-with-the-racing-feature)
 14. [What goroutine executes the racing policy methods?](#14-what-goroutine-executes-the-racing-policy-methods)
+15. [How do I determine if a request attempt was redundant?](#15-how-do-i-determine-if-a-request-attempt-was-redundant)
 
 ### 1. What is racing (concurrent requests)?
 
@@ -334,9 +335,8 @@ by the retry policy's `Wait` method and then starts a new wave.
 Again as in the serial case, a negative retry decision means "stop
 trying". As soon as one attempt finishes with a negative retry decision,
 all other in-flight attempts in the race are cancelled with the special
-error value `racing.Redundant` and the attempt which finished with the
-negative retry decision represents the final state of the HTTP request
-plan execution.
+causal error `racing.Redundant`. The attempt which finished with the negative
+retry decision represents the final state of the HTTP request plan execution.
 
 ### 12. How do timeouts work with the racing feature?
 
@@ -369,6 +369,24 @@ following invariants are true:
 The racing policy is always called from the goroutine which called the
 request execution method (`Do`, `Get`, `Post`, *etc.*) on
 `httpx.Client`.
+
+### 15. How do I determine if a request attempt was redundant?
+
+If a request attempt was cancelled as redundant, the execution error
+passed to the `AfterAttempt` handler for that request attempt will be
+set to a `*url.Error` whose `Err` member has the value `racing.Redundant`.
+
+You can use the standard `errors` package to unwrap or inspect it. For
+example, to test if the attempt was redundant, include code such as this
+in your `AfterAttempt` handler:
+
+```go
+func myAfterAttemptHandler(_ httpx.Event, e *request.Execution) {
+    if errors.Is(e.Err, racing.Redundant) {
+        // The request attempt was cancelled as redundant.
+    }
+}
+```
 
 ## 6. Plugins (event handlers)
 

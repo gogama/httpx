@@ -6,8 +6,9 @@ package racing
 
 import "errors"
 
-// Redundant is the error set on Execution.Err when the request attempt
-// is cancelled as redundant.
+// Redundant is the root cause error on Execution.Err when the request
+// attempt is cancelled as redundant. (Redundant will be wrapped in a
+// *url.Error to comply with the contract for Execution.Err.)
 //
 // Once any request attempt has reached a final (non-retryable) outcome,
 // all other outstanding concurrent attempts racing in the same wave are
