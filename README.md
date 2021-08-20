@@ -1,7 +1,7 @@
 httpx - Best HTTP client for reliability (retry, plugins, racing, and more!) 
 ============================================================================
 
-[![Build Status](https://travis-ci.com/gogama/httpx.svg)](https://travis-ci.com/gogama/httpx) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/httpx)](https://goreportcard.com/report/github.com/gogama/httpx) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/httpx)](https://pkg.go.dev/github.com/gogama/httpx)
+[![Build Status](https://travis-ci.org/gogama/httpx.svg)](https://travis-ci.com/gogama/httpx) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/httpx)](https://goreportcard.com/report/github.com/gogama/httpx) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/httpx)](https://pkg.go.dev/github.com/gogama/httpx)
 
 Package httpx is the best-in-class GoLang HTTP client for making HTTP
 requests with enterprise-level reliability.
