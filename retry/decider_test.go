@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gogama/httpx/request"
-
 	"github.com/stretchr/testify/assert"
 )
 

@@ -12,9 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestBodyBytes(t *testing.T) {

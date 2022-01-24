@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gogama/httpx/request"
-
 	"github.com/gogama/httpx/racing"
+	"github.com/gogama/httpx/request"
 )
 
 func ExampleNewStaticScheduler() {

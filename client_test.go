@@ -22,16 +22,13 @@ import (
 	"time"
 
 	"github.com/gogama/httpx/racing"
-
 	"github.com/gogama/httpx/request"
 	"github.com/gogama/httpx/retry"
 	"github.com/gogama/httpx/timeout"
 	"github.com/gogama/httpx/transient"
-
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestClient(t *testing.T) {

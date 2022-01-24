@@ -17,11 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogama/httpx/retry"
-
-	"github.com/gogama/httpx/timeout"
-
 	"github.com/gogama/httpx/request"
+	"github.com/gogama/httpx/retry"
+	"github.com/gogama/httpx/timeout"
 )
 
 var httpServer = httptest.NewUnstartedServer(http.HandlerFunc(serverHandler))

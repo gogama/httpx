@@ -10,12 +10,9 @@ import (
 	"testing"
 
 	"github.com/gogama/httpx/request"
-
 	"github.com/stretchr/testify/assert"
-
-	"github.com/stretchr/testify/require"
-
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGet(t *testing.T) {
