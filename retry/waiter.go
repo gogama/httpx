@@ -56,7 +56,7 @@ func (w fixedWaiter) Wait(_ *request.Execution) time.Duration {
 // Parameters base and max control the exponential calculation of the
 // ceiling:
 //
-//     ceil := max(base * 2**attempt, max)
+//	ceil := max(base * 2**attempt, max)
 //
 // Base and max must be positive values, and max must be at least equal
 // to base.
@@ -71,10 +71,10 @@ func (w fixedWaiter) Wait(_ *request.Execution) time.Duration {
 // calculate jitter.
 func NewExpWaiter(base, max time.Duration, jitter interface{}) Waiter {
 	if base < 1 {
-		panic("xhttp/retry: base must be positive")
+		panic("httpx/retry: base must be positive")
 	}
 	if max < base {
-		panic("xhttp/retry: max must be at least base")
+		panic("httpx/retry: max must be at least base")
 	}
 	r := jitterToRand(jitter)
 	return &jitterExpWaiter{
@@ -127,13 +127,13 @@ func jitterToRand(jitter interface{}) *rand.Rand {
 		s = rand.NewSource(j)
 	case *rand.Rand:
 		if j == nil {
-			panic("xhttp/timeout: jitter may not be a typed nil")
+			panic("httpx/retry: jitter may not be a typed nil")
 		}
 		return j
 	case rand.Source:
 		s = j
 	default:
-		panic("xhttp/timeout: invalid jitter type")
+		panic("httpx/retry: invalid jitter type")
 	}
 	return rand.New(s)
 }
