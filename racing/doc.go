@@ -21,42 +21,42 @@ user.
 
 The main concepts involved in racing are:
 
-• A group of concurrent or racing request attempts is called a wave.
-  Every wave starts with one request attempt and may grow as new
-  attempts are started according to the Policy. A wave ends either when
-  the first non-retryable attempt within the policy is detected, or when
-  all concurrent attempts permitted by the policy have ended. A new wave
-  begins if all attempts within the previous wave ended in a retryable
-  state.
+  - A group of concurrent or racing request attempts is called a wave.
+    Every wave starts with one request attempt and may grow as new
+    attempts are started according to the Policy. A wave ends either when
+    the first non-retryable attempt within the policy is detected, or when
+    all concurrent attempts permitted by the policy have ended. A new wave
+    begins if all attempts within the previous wave ended in a retryable
+    state.
 
-• A racing Policy decides when to add a new concurrent request attempt
-  to the current wave. Policy decisions are broken down into two steps,
-  scheduling and starting. Each time a new request attempt is added to
-  the wave, the Policy is invoked to schedule the next request attempt.
-  When the scheduled time occurs, the Policy is again invoked to decide
-  whether the scheduled request attempt should really start, as
-  circumstances may have changed in the meantime.
+  - A racing Policy decides when to add a new concurrent request attempt
+    to the current wave. Policy decisions are broken down into two steps,
+    scheduling and starting. Each time a new request attempt is added to
+    the wave, the Policy is invoked to schedule the next request attempt.
+    When the scheduled time occurs, the Policy is again invoked to decide
+    whether the scheduled request attempt should really start, as
+    circumstances may have changed in the meantime.
 
-• Although each racing request executes on its own goroutine, the robust
-  HTTP client dispatches every racing requests' events to the event
-  handler on the main goroutine (the one that invoked the client). Thus
-  even if multiple attempts are racing within a single request
-  execution, the events for that execution are serialized and do not race.
+  - Although each racing request executes on its own goroutine, the robust
+    HTTP client dispatches every racing requests' events to the event
+    handler on the main goroutine (the one that invoked the client). Thus
+    even if multiple attempts are racing within a single request
+    execution, the events for that execution are serialized and do not race.
 
-• Attempt-level events (BeforeAttempt, BeforeReadBody, AfterAttempt,
-  AfterAttemptTimeout) always occur in the correct order for a
-  particular request attempt. The events of different attempts in the
-  same wave may be interleaved, but the BeforeAttempt event always
-  occurs for attempt `i` before it occurs for attempt `i+1`. All events
-  for a request attempt in wave `j` occur before any events for an
-  attempt in wave `j+1`.
+  - Attempt-level events (BeforeAttempt, BeforeReadBody, AfterAttempt,
+    AfterAttemptTimeout) always occur in the correct order for a
+    particular request attempt. The events of different attempts in the
+    same wave may be interleaved, but the BeforeAttempt event always
+    occurs for attempt `i` before it occurs for attempt `i+1`. All events
+    for a request attempt in wave `j` occur before any events for an
+    attempt in wave `j+1`.
 
-• As soon as one request attempt ends, every other concurrent request
-  attempt in the wave is cancelled as redundant. The AfterAttempt event
-  handler is fired for every request that is cancelled as redundant, and
-  the execution error during the event is set to Redundant. If the ended
-  request is retryable, a new wave is started. Otherwise, the ended
-  request's response becomes the result of the execution.
+  - As soon as one request attempt ends, every other concurrent request
+    attempt in the wave is cancelled as redundant. The AfterAttempt event
+    handler is fired for every request that is cancelled as redundant, and
+    the execution error during the event is set to Redundant. If the ended
+    request is retryable, a new wave is started. Otherwise, the ended
+    request's response becomes the result of the execution.
 
 Besides the Disabled policy, this package provides built-in constructors
 for a scheduler and a starter. Use NewStaticScheduler to create a

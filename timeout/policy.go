@@ -65,7 +65,7 @@ func Fixed(d time.Duration) Policy {
 //
 // Consider the following timeout policy:
 //
-// 	p := Adaptive(200*time.Millisecond, time.Second, 10*time.Second)
+//	p := Adaptive(200*time.Millisecond, time.Second, 10*time.Second)
 //
 // The policy p will use 200 milliseconds as the usual timeout but if
 // the preceding attempt timed out and was the first timeout of the

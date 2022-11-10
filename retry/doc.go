@@ -12,11 +12,11 @@
 // constructors for common use cases, so that a useful policy can be
 // quickly assembled:
 //
-//     decider := retry.Times(3).
-//                    And(retry.Before(5 * time.Second)).
-//                    And(retry.StatusCode(500).Or(retry.TransientErr))
-//     waiter := retry.NewExpWaiter{100 * time.Millisecond, 2 * time.Second}
-//     policy := retry.NewPolicy(d, w)
+//	decider := retry.Times(3).
+//	               And(retry.Before(5 * time.Second)).
+//	               And(retry.StatusCode(500).Or(retry.TransientErr))
+//	waiter := retry.NewExpWaiter{100 * time.Millisecond, 2 * time.Second}
+//	policy := retry.NewPolicy(d, w)
 //
 // If the built-in functionality is insufficient, fully custom retry
 // policies can be created by via custom implementations of Decider,

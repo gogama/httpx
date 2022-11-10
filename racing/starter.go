@@ -56,7 +56,7 @@ type Limit struct {
 // have been started in the last half second, or more than 15 have been
 // started in the last second:
 //
-// 	s := racing.NewThrottleStarter(
+//	s := racing.NewThrottleStarter(
 //		racing.Limit{MaxAttempts: 10, Period: 500*time.Millisecond},
 //		racing.Limit{MaxAttempts: 15, Period: 1*time.Second))
 //
