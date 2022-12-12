@@ -44,9 +44,10 @@ const DefaultTimes = 5
 // DefaultDecider is a general-purpose retry decider suitable for
 // common use cases. It will allow up to DefaultTimes retries (i.e. up
 // to 6 total attempts), and will retry in the case of a transient error
-// (TransientErr) or if a valid HTTP response is received but it contains
-// one of the following status codes: 429 (Too Many Requests); 502 (Bad
-// Gateway); 503 (Service Unavailable); or 504 (Gateway Timeout).
+// (TransientErr) or if a valid HTTP response is received, but it
+// contains one of the following status codes: 429 (Too Many Requests);
+// 502 (Bad Gateway); 503 (Service Unavailable); or 504 (Gateway
+// Timeout).
 var DefaultDecider = Times(DefaultTimes).And(StatusCode(429, 502, 503, 504).Or(TransientErr))
 
 // TransientErr is a decider that indicates a retry if the current
