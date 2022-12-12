@@ -7,7 +7,7 @@ package httpx
 import (
 	"context"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -485,7 +485,7 @@ func (as *attemptState) sendAndReadBody() {
 		if body == nil {
 			panic("httpx: attempt response body was nilled")
 		}
-		as.body, err = ioutil.ReadAll(body)
+		as.body, err = io.ReadAll(body)
 		if err != nil {
 			as.err = urlErrorWrap(as.es.plan(), as.maybeRedundant(err))
 		}
