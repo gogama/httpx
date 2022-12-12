@@ -62,7 +62,7 @@ const (
 	// syscall.ECONNRESET.
 	ConnReset
 	// UnexpectedEOF indicates the remote host unexpectedly sent a FIN
-	// package on a previously active connection.
+	// packet on a previously active connection.
 	//
 	// This category includes both io.ErrUnexpectedEOF, which may occur
 	// if the remote server closes the connection before the client is
