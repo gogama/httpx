@@ -6,6 +6,7 @@ package transient
 
 import (
 	"errors"
+	"io"
 	"syscall"
 )
 
@@ -52,7 +53,7 @@ const (
 	// Connection reset is not uncommon if, due to poor deployment
 	// processes, a service on the remote host comes down prematurely
 	// (i.e. while it is still in the process of responding to a
-	// request). As well it may happen in a variety of cases where the
+	// request). As well, it may happen in a variety of cases where the
 	// remote host is a load balancer. For these reasons, a connection
 	// reset tends to indicate a high probability of success on retry.
 	//
@@ -60,6 +61,15 @@ const (
 	// Timeout, and the error or any of its wrapped causes is equal to
 	// syscall.ECONNRESET.
 	ConnReset
+	// UnexpectedEOF indicates the remote host unexpectedly sent a FIN
+	// package on a previously active connection.
+	//
+	// This category includes both io.ErrUnexpectedEOF, which may occur
+	// if the remote server closes the connection before the client is
+	// able to read the expected Content-Length bytes of body payload;
+	// and io.EOF, which may occur if the connection is closed before
+	// the response headers are received.
+	UnexpectedEOF
 )
 
 // Categorize returns the transience category of the given error. All
@@ -89,6 +99,10 @@ func Categorize(err error) Category {
 		} else if errno == syscall.ECONNREFUSED {
 			return ConnRefused
 		}
+	}
+
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return UnexpectedEOF
 	}
 
 	return Not

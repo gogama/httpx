@@ -42,6 +42,7 @@ func TestClient(t *testing.T) {
 	t.Run("plan replace", testClientPlanChange)
 	t.Run("close idle connections", testClientCloseIdleConnections)
 	t.Run("racing", testClientRacing)
+	t.Run("eof transience", testClientEOFTransience)
 }
 
 func TestURLErrorOp(t *testing.T) {
@@ -1616,6 +1617,31 @@ func testClientRacingMultipleWaves(t *testing.T) {
 	assert.Greater(t, e.AttemptEnds, curWaveFirstAttempt)
 	assert.Less(t, e.Attempt, numWaves*maxRacing)
 	assert.LessOrEqual(t, e.AttemptEnds, numWaves*maxRacing)
+}
+
+func testClientEOFTransience(t *testing.T) {
+	for _, server := range servers {
+		t.Run(serverName(server), func(t *testing.T) {
+			cl := &Client{
+				HTTPDoer:      server.Client(),
+				TimeoutPolicy: timeout.Infinite,
+				RetryPolicy:   retry.Never,
+			}
+
+			ctx := context.Background()
+			p := (&serverInstruction{
+				StatusCode:    400,
+				ContentLength: 16,
+				Body: []bodyChunk{
+					{Data: []byte("A mere 15 bytes")},
+				},
+			}).toPlan(ctx, "PUT", server)
+			_, err := cl.Do(p)
+
+			assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+			assert.Equal(t, transient.UnexpectedEOF, transient.Categorize(err))
+		})
+	}
 }
 
 type mockHTTPDoer struct {

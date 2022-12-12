@@ -7,6 +7,7 @@ package transient
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"syscall"
 	"testing"
@@ -33,6 +34,14 @@ func TestCategorize(t *testing.T) {
 	assert.Equal(t, ConnRefused, Categorize(syscall.ECONNREFUSED))
 	assert.Equal(t, ConnRefused, Categorize(wrapper{syscall.ECONNREFUSED}))
 	assert.Equal(t, ConnRefused, Categorize(&url.Error{Err: wrapper{timeoutWrapper{false, syscall.ECONNREFUSED}}}))
+	assert.Equal(t, UnexpectedEOF, Categorize(io.ErrUnexpectedEOF))
+	assert.Equal(t, UnexpectedEOF, Categorize(wrapper{io.ErrUnexpectedEOF}))
+	assert.Equal(t, UnexpectedEOF, Categorize(timeoutWrapper{false, io.ErrUnexpectedEOF}))
+	assert.Equal(t, UnexpectedEOF, Categorize(&url.Error{Err: wrapper{io.ErrUnexpectedEOF}}))
+	assert.Equal(t, UnexpectedEOF, Categorize(io.EOF))
+	assert.Equal(t, UnexpectedEOF, Categorize(wrapper{io.EOF}))
+	assert.Equal(t, UnexpectedEOF, Categorize(timeoutWrapper{false, io.EOF}))
+	assert.Equal(t, UnexpectedEOF, Categorize(&url.Error{Err: timeoutWrapper{false, wrapper{io.EOF}}}))
 }
 
 type timeout struct{}

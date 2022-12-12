@@ -74,9 +74,10 @@ type bodyChunk struct {
 }
 
 type serverInstruction struct {
-	HeaderPause time.Duration
-	StatusCode  int
-	Body        []bodyChunk
+	HeaderPause   time.Duration
+	StatusCode    int
+	ContentLength int
+	Body          []bodyChunk
 }
 
 func (i *serverInstruction) zero() bool {
@@ -124,8 +125,8 @@ func (i *serverInstruction) fromRequest(req *http.Request) error {
 
 func serverHandler(w http.ResponseWriter, req *http.Request) {
 	// Decode the instructions.
-	var i serverInstruction
-	err := i.fromRequest(req)
+	var inst serverInstruction
+	err := inst.fromRequest(req)
 	if err != nil {
 		w.WriteHeader(400)
 		_, _ = io.WriteString(w, fmt.Sprintf("failed to read request: %s", err.Error()))
@@ -133,9 +134,9 @@ func serverHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Validate the instruction.
-	if i.StatusCode == 0 {
+	if inst.StatusCode == 0 {
 		w.WriteHeader(400)
-		_, _ = io.WriteString(w, fmt.Sprintf("bad StatusCode in instruction: %v", i))
+		_, _ = io.WriteString(w, fmt.Sprintf("bad StatusCode in instruction: %v", inst))
 		return
 	}
 
@@ -146,9 +147,11 @@ func serverHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Determine the content length of the response.
-	contentLength := 0
-	for _, chunk := range i.Body {
-		contentLength += len(chunk.Data)
+	contentLength := inst.ContentLength
+	if contentLength <= 0 {
+		for _, chunk := range inst.Body {
+			contentLength += len(chunk.Data)
+		}
 	}
 
 	// Create the response headers.
@@ -157,14 +160,14 @@ func serverHandler(w http.ResponseWriter, req *http.Request) {
 
 	// Sleep for the duration indicated by the pause field. This is done
 	// to allow the client to play with timeouts.
-	time.Sleep(i.HeaderPause)
+	time.Sleep(inst.HeaderPause)
 
 	// Return the HTTP response stipulated by the client.
-	w.WriteHeader(i.StatusCode)
+	w.WriteHeader(inst.StatusCode)
 	f.Flush()
 
 	// Write the response in chunks, pausing before each chunk.
-	for _, chunk := range i.Body {
+	for _, chunk := range inst.Body {
 		data := chunk.Data
 		pause := chunk.Pause
 
