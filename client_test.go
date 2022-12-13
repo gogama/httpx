@@ -628,6 +628,46 @@ func testClientRetryVarious(t *testing.T) {
 			},
 		},
 		{
+			name:   "eof on do",
+			doResp: nil,
+			doErr: &url.Error{
+				Op:  "pling",
+				URL: "bling",
+				Err: io.EOF,
+			},
+			handlerCalls: []string{
+				"BeforeAttempt",
+				"AfterAttempt",
+			},
+			assertFunc: func(t *testing.T, e *request.Execution) {
+				require.IsType(t, &url.Error{}, e.Err)
+				urlError := e.Err.(*url.Error)
+				assert.Same(t, io.EOF, urlError.Err)
+				assert.Nil(t, e.Response)
+			},
+		},
+		{
+			name: "unexpected eof on read body",
+			doResp: &http.Response{
+				StatusCode: 200,
+				Body:       &unexpectedEOFReader{"I wish I could just...", 0},
+			},
+			doErr: nil,
+			handlerCalls: []string{
+				"BeforeAttempt",
+				"BeforeReadBody",
+				"AfterAttempt",
+			},
+			assertFunc: func(t *testing.T, e *request.Execution) {
+				require.IsType(t, &url.Error{}, e.Err)
+				urlError := e.Err.(*url.Error)
+				assert.Same(t, io.ErrUnexpectedEOF, urlError.Err)
+				assert.Equal(t, 200, e.StatusCode())
+				assert.NotNil(t, e.Response)
+				assert.Equal(t, []byte("I wish I could just..."), e.Body)
+			},
+		},
+		{
 			name: "no content",
 			doResp: &http.Response{
 				StatusCode: 204,
@@ -1818,4 +1858,26 @@ type callOrderMatcher struct {
 
 func (com *callOrderMatcher) Match(x int32) bool {
 	return atomic.CompareAndSwapInt32(&com.counter, x, x+1)
+}
+
+type unexpectedEOFReader struct {
+	s string
+	n int
+}
+
+func (r *unexpectedEOFReader) Read(p []byte) (n int, err error) {
+	n = len(p)
+	if n > len(r.s)-r.n {
+		n = len(r.s) - r.n
+	}
+	copy(p[0:n], []byte(r.s)[r.n:r.n+n])
+	r.n += n
+	if r.n == len(r.s) {
+		err = io.ErrUnexpectedEOF
+	}
+	return
+}
+
+func (r *unexpectedEOFReader) Close() error {
+	return nil
 }
